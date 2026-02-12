@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "sonar-catalog"
+version = "0.1.0"
+description = "Petabyte-scale sonar file catalog with deduplication across distributed NFS systems"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    # Core - always needed
+    # (stdlib: sqlite3, os, subprocess, socket, hashlib, etc.)
+]
+
+[project.optional-dependencies]
+postgres = [
+    "psycopg2-binary>=2.9",
+]
+blake3 = [
+    "blake3>=0.4",
+]
+magic = [
+    "python-magic>=0.4",
+]
+all = [
+    "psycopg2-binary>=2.9",
+    "blake3>=0.4",
+    "python-magic>=0.4",
+]
+
+[project.scripts]
+sonar-catalog = "sonar_catalog.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["sonar_catalog*"]

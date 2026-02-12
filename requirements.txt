@@ -1,0 +1,10 @@
+# Core (no external deps required - uses SQLite + hashlib by default)
+
+# Recommended: PostgreSQL backend (for multi-user / large-scale deployments)
+psycopg2-binary>=2.9
+
+# Recommended: Native BLAKE3 (10-20x faster than hashlib SHA-256)
+blake3>=0.4
+
+# Optional: Better MIME type detection
+python-magic>=0.4
