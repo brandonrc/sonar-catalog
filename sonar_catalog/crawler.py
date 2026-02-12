@@ -28,44 +28,6 @@ logger = logging.getLogger(__name__)
 # Sonar format detection
 # ---------------------------------------------------------------
 
-# Magic bytes / signatures for common sonar formats
-SONAR_SIGNATURES = {
-    # XTF (eXtended Triton Format) - starts with header type byte
-    b"\x01\x00": "xtf",
-    # JSF (EdgeTech) - JSTAR header
-    b"\x16\x16": "jsf",
-    # s7k (Reson/Teledyne) - record start
-    b"\xff\xff": "s7k",
-    # Kongsberg .all - datagram start
-    b"\x02\x00": "all",
-    # SEG-Y - textual header starts with "C 1" or binary header
-    b"C 1 ": "segy",
-    b"C  1": "segy",
-}
-
-# Extension-based format detection (fallback)
-EXTENSION_TO_FORMAT = {
-    ".xtf": "xtf",
-    ".jsf": "jsf",
-    ".s7k": "s7k",
-    ".all": "all",
-    ".wcd": "wcd",
-    ".kmall": "kmall",
-    ".db": "humminbird",
-    ".sl2": "lowrance",
-    ".sl3": "lowrance",
-    ".son": "garmin",
-    ".sgy": "segy",
-    ".segy": "segy",
-    ".bag": "bag",
-    ".raw": "raw_sonar",
-    ".csv": "csv",
-    ".xyz": "xyz_points",
-    ".tif": "geotiff",
-    ".tiff": "geotiff",
-}
-
-
 def detect_sonar_format(
     path: str,
     extension: str,
@@ -75,51 +37,52 @@ def detect_sonar_format(
     """
     Detect sonar file format from magic bytes or extension.
 
-    Checks custom user-defined magic bytes first (from config),
-    then built-in signatures, then custom extension map, then built-in extensions.
+    Dispatches through the plugin hook system if initialized,
+    otherwise falls back to the built-in plugin's detection logic directly.
     """
+    # Read file header for magic byte detection
+    header = None
     try:
+        max_read = 64
+        if custom_magic:
+            max_read = max(
+                max_read,
+                max(
+                    (e.get("offset", 0) + e.get("byte_length", 0))
+                    for e in custom_magic
+                ) + 1,
+            )
         with open(path, "rb") as f:
-            # Read enough for the longest possible signature
-            max_read = 64  # generous default
-            if custom_magic:
-                max_read = max(
-                    max_read,
-                    max(
-                        (e.get("offset", 0) + e.get("byte_length", 0))
-                        for e in custom_magic
-                    ) + 1
-                )
             header = f.read(max_read)
-
-            # Check custom magic bytes first (user-defined take priority)
-            if custom_magic and len(header) >= 1:
-                for entry in custom_magic:
-                    offset = entry.get("offset", 0)
-                    hex_bytes = entry.get("hex_bytes", "")
-                    fmt = entry.get("format", "unknown")
-                    try:
-                        sig = bytes.fromhex(hex_bytes)
-                        if len(header) >= offset + len(sig):
-                            if header[offset:offset + len(sig)] == sig:
-                                return fmt
-                    except (ValueError, TypeError):
-                        continue
-
-            # Check built-in magic signatures
-            if len(header) >= 4:
-                for sig, fmt in SONAR_SIGNATURES.items():
-                    if header.startswith(sig):
-                        return fmt
-
     except (PermissionError, OSError):
         pass
 
-    # Fall back to extension (custom map first, then built-in)
-    ext = extension.lower()
-    if custom_ext_map and ext in custom_ext_map:
-        return custom_ext_map[ext]
-    return EXTENSION_TO_FORMAT.get(ext)
+    # Try plugin system
+    try:
+        from .plugins import plugin_manager, _initialized
+
+        if _initialized and plugin_manager.plugin_names:
+            return plugin_manager.call_hook(
+                "detect_format",
+                file_path=path,
+                header=header,
+                extension=extension,
+                custom_magic=custom_magic,
+                custom_ext_map=custom_ext_map,
+            )
+    except ImportError:
+        pass
+
+    # Fallback: use builtin detection directly
+    from .plugins.builtin.formats import _detect_format
+
+    return _detect_format(
+        file_path=path,
+        header=header,
+        extension=extension,
+        custom_magic=custom_magic,
+        custom_ext_map=custom_ext_map,
+    )
 
 
 def get_file_type(path: str) -> Optional[str]:
@@ -474,25 +437,18 @@ class FileCrawler:
 
         for fh in hashes:
             file_info = info.get(fh.path, {})
-            canonical_loc = canonical_locs.get(fh.path)
+            loc = canonical_locs[fh.path]
 
-            # Detect file type / MIME
+            # Detect MIME type
             mime_type = None
-            file_type = None
-            sonar_format = None
-
             if self.meta_config.use_file_command:
                 mime_type = get_file_type(fh.path)
-
             if self.meta_config.use_magic:
-                magic_mime = get_mime_type_magic(fh.path)
-                if magic_mime:
-                    mime_type = magic_mime
+                mime_type = get_mime_type_magic(fh.path) or mime_type
 
             # Detect sonar format
-            ext = file_info.get("extension", "")
             sonar_format = detect_sonar_format(
-                fh.path, ext,
+                fh.path, file_info.get("extension", ""),
                 custom_magic=self.meta_config.custom_magic_bytes,
                 custom_ext_map=self.meta_config.custom_extension_map,
             )
@@ -503,24 +459,25 @@ class FileCrawler:
                 "partial_hash": fh.partial_hash,
                 "hash_algorithm": fh.algorithm,
                 "mime_type": mime_type,
-                "file_type": file_type,
+                "file_type": None,
                 "sonar_format": sonar_format,
             })
 
             location_records.append({
                 "content_hash": fh.full_hash,
-                "nfs_server": canonical_loc.nfs_server if canonical_loc else None,
-                "nfs_export": canonical_loc.nfs_export if canonical_loc else None,
-                "remote_path": canonical_loc.relative_path if canonical_loc else None,
-                "canonical_path": canonical_loc.canonical_path if canonical_loc else None,
-                "is_local": canonical_loc.is_local if canonical_loc else False,
-                "access_path": canonical_loc.access_path if canonical_loc else fh.path,
+                "nfs_server": loc.nfs_server,
+                "nfs_export": loc.nfs_export,
+                "remote_path": loc.relative_path,
+                "canonical_path": loc.canonical_path,
+                "is_local": loc.is_local,
+                "access_path": loc.access_path,
                 "access_hostname": access_hostname,
-                "mount_source": canonical_loc.mount_source if canonical_loc else None,
+                "mount_source": loc.mount_source,
                 "file_name": file_info.get("name", os.path.basename(fh.path)),
                 "directory": file_info.get("directory", os.path.dirname(fh.path)),
                 "mtime": file_info.get("mtime"),
                 "scan_id": scan_id,
+                "sonar_format": sonar_format,
             })
 
             new_count += 1
@@ -535,4 +492,77 @@ class FileCrawler:
             error_count += len(file_records)
             new_count = 0
 
+        # Extract navigation data (if enabled)
+        if self.meta_config.nav_extraction.enabled:
+            self._extract_nav_batch(hashes, info)
+
         return new_count, error_count, bytes_hashed
+
+    def _extract_nav_batch(self, hashes, info: dict):
+        """Extract navigation data for a batch of files."""
+        from .extractors import extract_nav
+
+        nav_records = []
+        for fh in hashes:
+            file_info = info.get(fh.path, {})
+            sonar_format = detect_sonar_format(
+                fh.path, file_info.get("extension", ""),
+                custom_magic=self.meta_config.custom_magic_bytes,
+                custom_ext_map=self.meta_config.custom_extension_map,
+            )
+            try:
+                result = extract_nav(
+                    fh.path,
+                    sonar_format=sonar_format,
+                    sidecar_config=self.meta_config.nav_extraction.sidecar_patterns,
+                )
+                if result and result.track:
+                    nav_data = self._build_nav_record(fh.full_hash, result)
+                    if nav_data:
+                        nav_records.append(nav_data)
+            except Exception as e:
+                logger.debug(f"Nav extraction failed for {fh.path}: {e}")
+
+        if nav_records:
+            try:
+                self.db.insert_nav_data_batch(nav_records)
+            except Exception as e:
+                logger.error(f"Nav data insert error: {e}")
+
+    def _build_nav_record(self, content_hash: str, result) -> dict | None:
+        """Build a nav data record from an extraction result."""
+        track = result.track
+        original_count = len(track)
+
+        # Downsample if needed
+        max_points = self.meta_config.nav_extraction.max_track_points
+        if len(track) > max_points:
+            track = self._downsample_track(track, max_points)
+
+        lats = [p[0] for p in track]
+        lons = [p[1] for p in track]
+
+        return {
+            "content_hash": content_hash,
+            "lat_min": min(lats),
+            "lat_max": max(lats),
+            "lon_min": min(lons),
+            "lon_max": max(lons),
+            "lat_center": (min(lats) + max(lats)) / 2,
+            "lon_center": (min(lons) + max(lons)) / 2,
+            "metadata": {
+                "track": track,
+                "source": result.source,
+                "point_count_original": original_count,
+                "point_count_stored": len(track),
+            },
+        }
+
+    @staticmethod
+    def _downsample_track(track: list, max_points: int) -> list:
+        """Downsample a track using uniform sampling, keeping first and last."""
+        if len(track) <= max_points:
+            return track
+        step = len(track) / (max_points - 1)
+        indices = [int(i * step) for i in range(max_points - 1)] + [len(track) - 1]
+        return [track[i] for i in sorted(set(indices))]

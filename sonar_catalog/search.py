@@ -52,41 +52,26 @@ class CatalogSearch:
         The 'query' parameter does fuzzy matching against both
         file paths and filenames.
         """
-        # Parse query into path/name patterns
-        path_pattern = None
-        filename_pattern = None
-
-        if query:
-            # If query contains '/', treat as path pattern
-            if "/" in query:
-                path_pattern = query
-            else:
-                # Search both path and filename
-                path_pattern = query
-                filename_pattern = query
-
-        results = self.db.search_files(
-            path_pattern=path_pattern,
-            filename_pattern=filename_pattern if not path_pattern else None,
-            nfs_server=nfs_server,
-            mime_type=mime_type,
-            sonar_format=sonar_format,
-            min_size=min_size,
-            max_size=max_size,
-            content_hash=content_hash,
-            limit=limit,
-            offset=offset,
-        )
-
-        # If path search returned nothing, try filename search
-        if not results and query and "/" not in query:
+        # Use FTS5 for text queries on SQLite (faster, tokenized search)
+        if query and not content_hash and self.db.backend != "postgresql":
+            results = self.db.search_files_fts(
+                query=query,
+                nfs_server=nfs_server,
+                sonar_format=sonar_format,
+                min_size=min_size,
+                max_size=max_size,
+                limit=limit,
+                offset=offset,
+            )
+        else:
             results = self.db.search_files(
-                filename_pattern=query,
+                path_pattern=query,
                 nfs_server=nfs_server,
                 mime_type=mime_type,
                 sonar_format=sonar_format,
                 min_size=min_size,
                 max_size=max_size,
+                content_hash=content_hash,
                 limit=limit,
                 offset=offset,
             )

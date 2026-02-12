@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-950">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonar Catalog</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ url_for('views.static', filename='app.css') }}">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        ocean: {
+                            50: '#eef7ff',
+                            100: '#d9edff',
+                            200: '#bce0ff',
+                            300: '#8ecdff',
+                            400: '#59b1ff',
+                            500: '#3391ff',
+                            600: '#1a6ff5',
+                            700: '#1459e1',
+                            800: '#1748b6',
+                            900: '#193f8f',
+                            950: '#142857',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="h-full dark">
+    <div id="app" class="min-h-full">
+        <!-- Nav -->
+        <nav class="bg-gray-900 border-b border-gray-800">
+            <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                <div class="flex h-14 items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="text-ocean-400 font-bold text-lg tracking-tight">Sonar Catalog</span>
+                    </div>
+                    <div class="flex gap-1">
+                        <button onclick="showPage('search')"
+                                class="nav-btn px-3 py-1.5 text-sm rounded-md text-gray-300 hover:bg-gray-800 hover:text-white"
+                                data-page="search">Search</button>
+                        <button onclick="showPage('duplicates')"
+                                class="nav-btn px-3 py-1.5 text-sm rounded-md text-gray-300 hover:bg-gray-800 hover:text-white"
+                                data-page="duplicates">Duplicates</button>
+                        <button onclick="showPage('hosts')"
+                                class="nav-btn px-3 py-1.5 text-sm rounded-md text-gray-300 hover:bg-gray-800 hover:text-white"
+                                data-page="hosts">Hosts</button>
+                        <button onclick="showPage('stats')"
+                                class="nav-btn px-3 py-1.5 text-sm rounded-md text-gray-300 hover:bg-gray-800 hover:text-white"
+                                data-page="stats">Stats</button>
+                        <a href="/globe"
+                           class="nav-btn px-3 py-1.5 text-sm rounded-md text-gray-300 hover:bg-gray-800 hover:text-white"
+                           >Globe</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Content -->
+        <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script src="{{ url_for('views.static', filename='app.js') }}"></script>
+</body>
+</html>

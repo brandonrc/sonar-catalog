@@ -104,8 +104,18 @@ CREATE TABLE IF NOT EXISTS scans (
 CREATE TABLE IF NOT EXISTS file_metadata (
     content_hash    TEXT PRIMARY KEY REFERENCES files(content_hash),
     metadata        JSONB NOT NULL DEFAULT '{}',
+    lat_min         DOUBLE PRECISION,
+    lat_max         DOUBLE PRECISION,
+    lon_min         DOUBLE PRECISION,
+    lon_max         DOUBLE PRECISION,
+    lat_center      DOUBLE PRECISION,
+    lon_center      DOUBLE PRECISION,
+    has_nav         BOOLEAN DEFAULT FALSE,
     extracted_at    TIMESTAMP NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_meta_has_nav ON file_metadata(has_nav);
+CREATE INDEX IF NOT EXISTS idx_meta_bbox ON file_metadata(lat_min, lat_max, lon_min, lon_max);
+CREATE INDEX IF NOT EXISTS idx_meta_center ON file_metadata(lat_center, lon_center);
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_locations_hash ON locations(content_hash);
@@ -184,8 +194,18 @@ CREATE TABLE IF NOT EXISTS scans (
 CREATE TABLE IF NOT EXISTS file_metadata (
     content_hash    TEXT PRIMARY KEY REFERENCES files(content_hash),
     metadata        TEXT NOT NULL DEFAULT '{}',
+    lat_min         REAL,
+    lat_max         REAL,
+    lon_min         REAL,
+    lon_max         REAL,
+    lat_center      REAL,
+    lon_center      REAL,
+    has_nav         INTEGER DEFAULT 0,
     extracted_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_meta_has_nav ON file_metadata(has_nav);
+CREATE INDEX IF NOT EXISTS idx_meta_bbox ON file_metadata(lat_min, lat_max, lon_min, lon_max);
+CREATE INDEX IF NOT EXISTS idx_meta_center ON file_metadata(lat_center, lon_center);
 
 CREATE INDEX IF NOT EXISTS idx_locations_hash ON locations(content_hash);
 CREATE INDEX IF NOT EXISTS idx_locations_server ON locations(nfs_server);
@@ -197,6 +217,16 @@ CREATE INDEX IF NOT EXISTS idx_files_size ON files(file_size);
 CREATE INDEX IF NOT EXISTS idx_files_mime ON files(mime_type);
 CREATE INDEX IF NOT EXISTS idx_files_sonar ON files(sonar_format);
 CREATE INDEX IF NOT EXISTS idx_files_partial ON files(partial_hash);
+
+-- FTS5 full-text index for fast tokenized search
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_locations USING fts5(
+    file_name,
+    directory,
+    canonical_path,
+    nfs_server,
+    sonar_format,
+    content_hash UNINDEXED
+);
 """
 
 
@@ -206,8 +236,21 @@ class CatalogDB:
     def __init__(self, config: DatabaseConfig):
         self.config = config
         self.backend = config.backend
+        self._ph = "%s" if config.backend == "postgresql" else "?"
+        self._ts = "NOW()" if config.backend == "postgresql" else "datetime('now')"
         self._pg_pool = None
         self._sqlite_conn = None
+
+    def __enter__(self):
+        self.initialize()
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def _to_bool(self, val):
+        """Convert Python bool to backend-appropriate value."""
+        return val if self.backend == "postgresql" else (1 if val else 0)
 
     def initialize(self):
         """Create tables and indexes."""
@@ -297,7 +340,7 @@ class CatalogDB:
 
     def file_exists(self, content_hash: str) -> bool:
         """Check if a content hash is already cataloged."""
-        ph = "%s" if self.backend == "postgresql" else "?"
+        ph = self._ph
         with self.get_connection() as conn:
             cur = conn.cursor()
             cur.execute(f"SELECT 1 FROM files WHERE content_hash = {ph}", (content_hash,))
@@ -314,8 +357,8 @@ class CatalogDB:
         sonar_format: str = None,
     ):
         """Insert a new unique file record."""
-        ph = "%s" if self.backend == "postgresql" else "?"
-        ts = "NOW()" if self.backend == "postgresql" else "datetime('now')"
+        ph = self._ph
+        ts = self._ts
         sql = f"""
             INSERT INTO files (content_hash, file_size, partial_hash, hash_algorithm,
                               mime_type, file_type, sonar_format)
@@ -349,9 +392,9 @@ class CatalogDB:
         scan_id: int = None,
     ):
         """Insert a canonical location record."""
-        ph = "%s" if self.backend == "postgresql" else "?"
-        ts = "NOW()" if self.backend == "postgresql" else "datetime('now')"
-        local_val = is_local if self.backend == "postgresql" else (1 if is_local else 0)
+        ph = self._ph
+        ts = self._ts
+        local_val = self._to_bool(is_local)
 
         sql = f"""
             INSERT INTO locations (content_hash, nfs_server, nfs_export, remote_path,
@@ -375,6 +418,13 @@ class CatalogDB:
                 mount_source, file_name, directory, mtime,
                 file_mode, owner, scan_id,
             ))
+            # Populate FTS index (SQLite only)
+            if self.backend != "postgresql":
+                cur.execute(
+                    "INSERT INTO fts_locations(file_name, directory, canonical_path, "
+                    "nfs_server, sonar_format, content_hash) VALUES (?, ?, ?, ?, ?, ?)",
+                    (file_name, directory, canonical_path, nfs_server, "", content_hash),
+                )
             conn.commit()
 
     def insert_files_batch(self, file_records: list[dict]):
@@ -382,8 +432,8 @@ class CatalogDB:
         if not file_records:
             return
 
-        ph = "%s" if self.backend == "postgresql" else "?"
-        ts = "NOW()" if self.backend == "postgresql" else "datetime('now')"
+        ph = self._ph
+        ts = self._ts
 
         sql = f"""
             INSERT INTO files (content_hash, file_size, partial_hash, hash_algorithm,
@@ -407,8 +457,8 @@ class CatalogDB:
         if not location_records:
             return
 
-        ph = "%s" if self.backend == "postgresql" else "?"
-        ts = "NOW()" if self.backend == "postgresql" else "datetime('now')"
+        ph = self._ph
+        ts = self._ts
 
         sql = f"""
             INSERT INTO locations (content_hash, nfs_server, nfs_export, remote_path,
@@ -427,9 +477,7 @@ class CatalogDB:
         with self.get_connection() as conn:
             cur = conn.cursor()
             for rec in location_records:
-                local_val = rec.get("is_local", False)
-                if self.backend != "postgresql":
-                    local_val = 1 if local_val else 0
+                local_val = self._to_bool(rec.get("is_local", False))
                 cur.execute(sql, (
                     rec["content_hash"], rec["nfs_server"], rec.get("nfs_export", ""),
                     rec["remote_path"], rec["canonical_path"], local_val,
@@ -437,6 +485,14 @@ class CatalogDB:
                     rec.get("mount_source", ""), rec["file_name"], rec["directory"],
                     rec.get("mtime"), rec.get("scan_id"),
                 ))
+                # Populate FTS index (SQLite only)
+                if self.backend != "postgresql":
+                    cur.execute(
+                        "INSERT INTO fts_locations(file_name, directory, canonical_path, "
+                        "nfs_server, sonar_format, content_hash) VALUES (?, ?, ?, ?, ?, ?)",
+                        (rec["file_name"], rec["directory"], rec["canonical_path"],
+                         rec["nfs_server"], rec.get("sonar_format", ""), rec["content_hash"]),
+                    )
             conn.commit()
 
     # ---------------------------------------------------------------
@@ -446,9 +502,9 @@ class CatalogDB:
     def upsert_host(self, ip_address: str, hostname: str = None,
                     discovery_method: str = None, ssh_accessible: bool = None):
         """Insert or update a host record."""
-        ph = "%s" if self.backend == "postgresql" else "?"
-        ts = "NOW()" if self.backend == "postgresql" else "datetime('now')"
-        bool_val = ssh_accessible if self.backend == "postgresql" else (1 if ssh_accessible else 0)
+        ph = self._ph
+        ts = self._ts
+        bool_val = self._to_bool(ssh_accessible)
 
         sql = f"""
             INSERT INTO hosts (ip_address, hostname, discovery_method, ssh_accessible)
@@ -471,7 +527,7 @@ class CatalogDB:
 
     def start_scan(self, hostname: str, base_path: str) -> int:
         """Start a new scan and return scan ID."""
-        ph = "%s" if self.backend == "postgresql" else "?"
+        ph = self._ph
 
         with self.get_connection() as conn:
             cur = conn.cursor()
@@ -494,7 +550,7 @@ class CatalogDB:
         """Update scan record with progress/completion info."""
         if not kwargs:
             return
-        ph = "%s" if self.backend == "postgresql" else "?"
+        ph = self._ph
         sets = []
         vals = []
         for key, val in kwargs.items():
@@ -513,7 +569,7 @@ class CatalogDB:
         Get all known files accessible from a host as {access_path: (content_hash, mtime)}.
         Used for incremental scanning.
         """
-        ph = "%s" if self.backend == "postgresql" else "?"
+        ph = self._ph
         sql = f"""
             SELECT access_path, content_hash, mtime
             FROM locations WHERE access_hostname = {ph}
@@ -544,7 +600,7 @@ class CatalogDB:
         offset: int = 0,
     ) -> list[dict]:
         """Search the catalog. Returns file + canonical location info."""
-        ph = "%s" if self.backend == "postgresql" else "?"
+        ph = self._ph
         conditions = []
         params = []
 
@@ -631,7 +687,7 @@ class CatalogDB:
 
     def find_duplicates(self, min_count: int = 2, limit: int = 100) -> list[dict]:
         """Find files that exist on multiple NFS servers."""
-        ph = "%s" if self.backend == "postgresql" else "?"
+        ph = self._ph
 
         sql = f"""
             SELECT f.content_hash, f.file_size, f.mime_type, f.sonar_format,
@@ -663,6 +719,7 @@ class CatalogDB:
     def get_stats(self) -> dict:
         """Get catalog statistics."""
         stats = {}
+        true_val = "TRUE" if self.backend == "postgresql" else "1"
         with self.get_connection() as conn:
             cur = conn.cursor()
 
@@ -681,29 +738,22 @@ class CatalogDB:
             cur.execute("SELECT COUNT(*) FROM hosts")
             stats["total_hosts"] = cur.fetchone()[0]
 
-            cur.execute(
-                "SELECT COUNT(*) FROM hosts WHERE ssh_accessible = "
-                + ("TRUE" if self.backend == "postgresql" else "1")
-            )
+            cur.execute(f"SELECT COUNT(*) FROM hosts WHERE ssh_accessible = {true_val}")
             stats["accessible_hosts"] = cur.fetchone()[0]
 
             cur.execute("SELECT COUNT(DISTINCT sonar_format) FROM files WHERE sonar_format IS NOT NULL")
             stats["sonar_formats"] = cur.fetchone()[0]
 
-            # Count local vs NFS
-            local_col = "is_local" if self.backend == "postgresql" else "is_local"
-            true_val = "TRUE" if self.backend == "postgresql" else "1"
-            false_val = "FALSE" if self.backend == "postgresql" else "0"
-            cur.execute(f"SELECT COUNT(*) FROM locations WHERE {local_col} = {false_val}")
+            cur.execute(f"SELECT COUNT(*) FROM locations WHERE is_local != {true_val}")
             stats["nfs_locations"] = cur.fetchone()[0]
-            cur.execute(f"SELECT COUNT(*) FROM locations WHERE {local_col} = {true_val}")
+            cur.execute(f"SELECT COUNT(*) FROM locations WHERE is_local = {true_val}")
             stats["local_locations"] = cur.fetchone()[0]
 
         return stats
 
     def get_locations_for_hash(self, content_hash: str) -> list[dict]:
         """Get all locations where a specific file exists."""
-        ph = "%s" if self.backend == "postgresql" else "?"
+        ph = self._ph
         sql = f"""
             SELECT nfs_server, nfs_export, remote_path, canonical_path,
                    is_local, access_path, access_hostname, mount_source,
@@ -730,6 +780,300 @@ class CatalogDB:
                     "mtime": row[10],
                 })
         return results
+
+    # ---------------------------------------------------------------
+    # FTS5 full-text search (SQLite only)
+    # ---------------------------------------------------------------
+
+    def search_files_fts(
+        self,
+        query: str,
+        nfs_server: str = None,
+        sonar_format: str = None,
+        min_size: int = None,
+        max_size: int = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Full-text search using FTS5 (SQLite only)."""
+        import re
+        params = []
+
+        # Sanitize: strip FTS5 operators, keep alphanumeric + spaces, add prefix *
+        safe = re.sub(r'[^\w\s]', ' ', query)
+        terms = [t for t in safe.split() if t]
+        if not terms:
+            return []
+        fts_expr = " ".join(f"{t}*" for t in terms)
+        params.append(fts_expr)
+
+        # Additional SQL WHERE filters
+        extra = []
+        if nfs_server:
+            extra.append("l.nfs_server LIKE ?")
+            params.append(f"%{nfs_server}%")
+        if sonar_format:
+            extra.append("f.sonar_format = ?")
+            params.append(sonar_format)
+        if min_size is not None:
+            extra.append("f.file_size >= ?")
+            params.append(min_size)
+        if max_size is not None:
+            extra.append("f.file_size <= ?")
+            params.append(max_size)
+
+        extra_where = (" AND " + " AND ".join(extra)) if extra else ""
+
+        sql = f"""
+            SELECT f.content_hash, f.file_size, f.mime_type, f.file_type,
+                   f.sonar_format, f.hash_algorithm,
+                   l.nfs_server, l.nfs_export, l.remote_path, l.canonical_path,
+                   l.is_local, l.access_path, l.access_hostname, l.mount_source,
+                   l.file_name, l.directory, l.mtime, l.discovered_at
+            FROM fts_locations
+            JOIN locations l ON fts_locations.content_hash = l.content_hash
+                 AND fts_locations.canonical_path = l.canonical_path
+            JOIN files f ON l.content_hash = f.content_hash
+            WHERE fts_locations MATCH ?
+            {extra_where}
+            ORDER BY fts_locations.rank
+            LIMIT ? OFFSET ?
+        """
+        params.extend([limit, offset])
+
+        results = []
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params)
+            for row in cur.fetchall():
+                results.append({
+                    "content_hash": row[0],
+                    "file_size": row[1],
+                    "mime_type": row[2],
+                    "file_type": row[3],
+                    "sonar_format": row[4],
+                    "hash_algorithm": row[5],
+                    "nfs_server": row[6],
+                    "nfs_export": row[7],
+                    "remote_path": row[8],
+                    "canonical_path": row[9],
+                    "is_local": row[10],
+                    "access_path": row[11],
+                    "access_hostname": row[12],
+                    "mount_source": row[13],
+                    "file_name": row[14],
+                    "directory": row[15],
+                    "mtime": row[16],
+                    "discovered_at": row[17],
+                })
+        return results
+
+    def rebuild_fts_index(self):
+        """Rebuild the FTS5 index from existing locations + files data."""
+        if self.backend == "postgresql":
+            raise RuntimeError("FTS5 is only available with SQLite backend")
+
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("DROP TABLE IF EXISTS fts_locations")
+            cur.execute("""
+                CREATE VIRTUAL TABLE fts_locations USING fts5(
+                    file_name, directory, canonical_path,
+                    nfs_server, sonar_format,
+                    content_hash UNINDEXED
+                )
+            """)
+            cur.execute("""
+                INSERT INTO fts_locations(file_name, directory, canonical_path,
+                                          nfs_server, sonar_format, content_hash)
+                SELECT l.file_name, l.directory, l.canonical_path,
+                       l.nfs_server, COALESCE(f.sonar_format, ''), l.content_hash
+                FROM locations l
+                JOIN files f ON l.content_hash = f.content_hash
+            """)
+            conn.commit()
+        logger.info("FTS5 index rebuilt")
+
+    # ---------------------------------------------------------------
+    # Geographic / Navigation data
+    # ---------------------------------------------------------------
+
+    def insert_nav_data(self, content_hash: str, nav_dict: dict):
+        """Insert or update navigation data for a file."""
+        ph = self._ph
+        ts = self._ts
+        metadata_json = json.dumps(nav_dict.get("metadata", {}))
+        has_nav = self._to_bool(True)
+
+        sql = f"""
+            INSERT INTO file_metadata (content_hash, metadata, lat_min, lat_max,
+                                       lon_min, lon_max, lat_center, lon_center, has_nav)
+            VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {has_nav})
+            ON CONFLICT (content_hash) DO UPDATE SET
+                metadata = EXCLUDED.metadata,
+                lat_min = EXCLUDED.lat_min,
+                lat_max = EXCLUDED.lat_max,
+                lon_min = EXCLUDED.lon_min,
+                lon_max = EXCLUDED.lon_max,
+                lat_center = EXCLUDED.lat_center,
+                lon_center = EXCLUDED.lon_center,
+                has_nav = EXCLUDED.has_nav,
+                extracted_at = {ts}
+        """
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, (
+                content_hash, metadata_json,
+                nav_dict["lat_min"], nav_dict["lat_max"],
+                nav_dict["lon_min"], nav_dict["lon_max"],
+                nav_dict["lat_center"], nav_dict["lon_center"],
+            ))
+            conn.commit()
+
+    def insert_nav_data_batch(self, records: list[dict]):
+        """Batch insert navigation data."""
+        if not records:
+            return
+        ph = self._ph
+        ts = self._ts
+        has_nav = self._to_bool(True)
+
+        sql = f"""
+            INSERT INTO file_metadata (content_hash, metadata, lat_min, lat_max,
+                                       lon_min, lon_max, lat_center, lon_center, has_nav)
+            VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {has_nav})
+            ON CONFLICT (content_hash) DO UPDATE SET
+                metadata = EXCLUDED.metadata,
+                lat_min = EXCLUDED.lat_min,
+                lat_max = EXCLUDED.lat_max,
+                lon_min = EXCLUDED.lon_min,
+                lon_max = EXCLUDED.lon_max,
+                lat_center = EXCLUDED.lat_center,
+                lon_center = EXCLUDED.lon_center,
+                has_nav = EXCLUDED.has_nav,
+                extracted_at = {ts}
+        """
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            for rec in records:
+                metadata_json = json.dumps(rec.get("metadata", {}))
+                cur.execute(sql, (
+                    rec["content_hash"], metadata_json,
+                    rec["lat_min"], rec["lat_max"],
+                    rec["lon_min"], rec["lon_max"],
+                    rec["lat_center"], rec["lon_center"],
+                ))
+            conn.commit()
+
+    def get_geo_points(
+        self,
+        lat_min: float = None,
+        lat_max: float = None,
+        lon_min: float = None,
+        lon_max: float = None,
+        sonar_format: str = None,
+        limit: int = 10000,
+    ) -> list[dict]:
+        """Get file center points for map marker display."""
+        ph = self._ph
+        true_val = "TRUE" if self.backend == "postgresql" else "1"
+        conditions = [f"fm.has_nav = {true_val}"]
+        params = []
+
+        if lat_min is not None:
+            conditions.append(f"fm.lat_center >= {ph}")
+            params.append(lat_min)
+        if lat_max is not None:
+            conditions.append(f"fm.lat_center <= {ph}")
+            params.append(lat_max)
+        if lon_min is not None:
+            conditions.append(f"fm.lon_center >= {ph}")
+            params.append(lon_min)
+        if lon_max is not None:
+            conditions.append(f"fm.lon_center <= {ph}")
+            params.append(lon_max)
+        if sonar_format:
+            conditions.append(f"f.sonar_format = {ph}")
+            params.append(sonar_format)
+
+        where = "WHERE " + " AND ".join(conditions)
+        params.append(limit)
+
+        sql = f"""
+            SELECT fm.content_hash, fm.lat_center, fm.lon_center,
+                   f.sonar_format, f.file_size,
+                   (SELECT l.file_name FROM locations l
+                    WHERE l.content_hash = fm.content_hash LIMIT 1) as file_name
+            FROM file_metadata fm
+            JOIN files f ON fm.content_hash = f.content_hash
+            {where}
+            LIMIT {ph}
+        """
+        results = []
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params)
+            for row in cur.fetchall():
+                results.append({
+                    "content_hash": row[0],
+                    "lat": row[1],
+                    "lon": row[2],
+                    "sonar_format": row[3],
+                    "file_size": row[4],
+                    "file_name": row[5],
+                })
+        return results
+
+    def get_track(self, content_hash: str) -> dict | None:
+        """Get the full track line and bounds for a file."""
+        ph = self._ph
+        true_val = "TRUE" if self.backend == "postgresql" else "1"
+        sql = f"""
+            SELECT fm.metadata, fm.lat_min, fm.lat_max, fm.lon_min, fm.lon_max
+            FROM file_metadata fm
+            WHERE fm.content_hash = {ph} AND fm.has_nav = {true_val}
+        """
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, (content_hash,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            metadata = json.loads(row[0]) if row[0] else {}
+            return {
+                "content_hash": content_hash,
+                "track": metadata.get("track", []),
+                "source": metadata.get("source", ""),
+                "point_count_original": metadata.get("point_count_original", 0),
+                "point_count_stored": metadata.get("point_count_stored", 0),
+                "bbox": {
+                    "lat_min": row[1],
+                    "lat_max": row[2],
+                    "lon_min": row[3],
+                    "lon_max": row[4],
+                },
+            }
+
+    def get_geo_bounds(self) -> dict | None:
+        """Get overall geographic bounds of all files with nav data."""
+        true_val = "TRUE" if self.backend == "postgresql" else "1"
+        sql = f"""
+            SELECT MIN(lat_min), MAX(lat_max), MIN(lon_min), MAX(lon_max), COUNT(*)
+            FROM file_metadata WHERE has_nav = {true_val}
+        """
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql)
+            row = cur.fetchone()
+            if not row or row[4] == 0:
+                return None
+            return {
+                "lat_min": row[0],
+                "lat_max": row[1],
+                "lon_min": row[2],
+                "lon_max": row[3],
+                "file_count": row[4],
+            }
 
     def close(self):
         """Close database connections."""

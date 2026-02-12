@@ -3,7 +3,8 @@
 import os
 import tempfile
 
-from sonar_catalog.crawler import detect_sonar_format, SONAR_SIGNATURES, EXTENSION_TO_FORMAT
+from sonar_catalog.crawler import detect_sonar_format
+from sonar_catalog.plugins.builtin.formats import SONAR_SIGNATURES, EXTENSION_TO_FORMAT
 
 
 class TestSonarFormatDetection:

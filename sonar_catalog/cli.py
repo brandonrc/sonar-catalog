@@ -70,267 +70,214 @@ def get_local_ip() -> str:
 
 def cmd_init(args, config: Config):
     """Initialize the database."""
-    db = CatalogDB(config.database)
-    db.initialize()
-    print("Database initialized successfully.")
+    with CatalogDB(config.database) as db:
+        print("Database initialized successfully.")
 
-    # Save default config if it doesn't exist
-    if not Path(DEFAULT_CONFIG_PATH).exists():
-        config.save()
-        print(f"Default config saved to {DEFAULT_CONFIG_PATH}")
-
-    db.close()
+        # Save default config if it doesn't exist
+        if not Path(DEFAULT_CONFIG_PATH).exists():
+            config.save()
+            print(f"Default config saved to {DEFAULT_CONFIG_PATH}")
 
 
 def cmd_discover(args, config: Config):
     """Run host and mount discovery."""
-    db = CatalogDB(config.database)
-    db.initialize()
+    with CatalogDB(config.database) as db:
+        engine = DiscoveryEngine(config.discovery)
+        hosts, mounts = engine.run_full_discovery()
 
-    engine = DiscoveryEngine(config.discovery)
-    hosts, mounts = engine.run_full_discovery()
-
-    # Store discovered hosts in DB
-    for ip, host in hosts.items():
-        db.upsert_host(
-            ip_address=ip,
-            hostname=host.hostname,
-            discovery_method=host.discovery_method,
-            ssh_accessible=host.ssh_accessible,
-        )
-
-    # Display results
-    print(f"\n=== Discovery Results ===")
-    print(f"Hosts found: {len(hosts)}")
-    print(f"SSH accessible: {sum(1 for h in hosts.values() if h.ssh_accessible)}")
-    print(f"Mount points: {len(mounts)}")
-
-    if hosts:
-        print(f"\n{'IP':<16} {'Hostname':<25} {'Method':<12} {'SSH':>4}")
-        print("-" * 60)
-        for ip, host in sorted(hosts.items(), key=lambda x: x[1].hostname or x[0]):
-            ssh = "OK" if host.ssh_accessible else "NO"
-            name = host.hostname or "-"
-            print(f"{ip:<16} {name:<25} {host.discovery_method:<12} {ssh:>4}")
-
-    if mounts:
-        print(f"\n{'Local Path':<30} {'Remote':<40} {'Source':<10}")
-        print("-" * 80)
-        for mp in mounts:
-            remote = f"{mp.remote_host}:{mp.remote_path}" if mp.remote_host else "-"
-            print(f"{mp.local_path:<30} {remote:<40} {mp.source:<10}")
-
-    # If accessible hosts found, also discover their mounts
-    if args.deep:
-        print("\n--- Deep discovery: checking remote autofs/fstab ---")
+        # Store discovered hosts in DB
         for ip, host in hosts.items():
-            if host.ssh_accessible:
-                remote_mounts = engine.ssh_discover_remote_mounts(host)
-                if remote_mounts:
-                    print(f"\n  {host.hostname or ip}:")
-                    for mp in remote_mounts:
-                        remote = f"{mp.remote_host}:{mp.remote_path}" if mp.remote_host else "-"
-                        print(f"    {mp.local_path:<30} {remote}")
+            db.upsert_host(
+                ip_address=ip,
+                hostname=host.hostname,
+                discovery_method=host.discovery_method,
+                ssh_accessible=host.ssh_accessible,
+            )
 
-    db.close()
+        # Display results
+        print(f"\n=== Discovery Results ===")
+        print(f"Hosts found: {len(hosts)}")
+        print(f"SSH accessible: {sum(1 for h in hosts.values() if h.ssh_accessible)}")
+        print(f"Mount points: {len(mounts)}")
+
+        if hosts:
+            print(f"\n{'IP':<16} {'Hostname':<25} {'Method':<12} {'SSH':>4}")
+            print("-" * 60)
+            for ip, host in sorted(hosts.items(), key=lambda x: x[1].hostname or x[0]):
+                ssh = "OK" if host.ssh_accessible else "NO"
+                name = host.hostname or "-"
+                print(f"{ip:<16} {name:<25} {host.discovery_method:<12} {ssh:>4}")
+
+        if mounts:
+            print(f"\n{'Local Path':<30} {'Remote':<40} {'Source':<10}")
+            print("-" * 80)
+            for mp in mounts:
+                remote = f"{mp.remote_host}:{mp.remote_path}" if mp.remote_host else "-"
+                print(f"{mp.local_path:<30} {remote:<40} {mp.source:<10}")
+
+        # If accessible hosts found, also discover their mounts
+        if args.deep:
+            print("\n--- Deep discovery: checking remote autofs/fstab ---")
+            for ip, host in hosts.items():
+                if host.ssh_accessible:
+                    remote_mounts = engine.ssh_discover_remote_mounts(host)
+                    if remote_mounts:
+                        print(f"\n  {host.hostname or ip}:")
+                        for mp in remote_mounts:
+                            remote = f"{mp.remote_host}:{mp.remote_path}" if mp.remote_host else "-"
+                            print(f"    {mp.local_path:<30} {remote}")
 
 
 def cmd_crawl(args, config: Config):
     """Crawl a filesystem path."""
-    db = CatalogDB(config.database)
-    db.initialize()
-
     hostname = args.host or get_local_hostname()
     ip = args.ip or get_local_ip()
-    path = args.path or "."
-    path = os.path.abspath(path)
+    path = os.path.abspath(args.path or ".")
 
     if not os.path.isdir(path):
         print(f"Error: {path} is not a directory", file=sys.stderr)
         sys.exit(1)
 
-    resolver = MountResolver()
-    resolver.load()
-    crawler = FileCrawler(db, config.crawler, config.metadata, resolver)
+    with CatalogDB(config.database) as db:
+        resolver = MountResolver()
+        resolver.load()
+        crawler = FileCrawler(db, config.crawler, config.metadata, resolver)
 
-    print(f"Crawling {hostname}:{path} ...")
-    print(f"  NFS mounts loaded: {len(resolver.get_nfs_mounts())}")
-    start = datetime.now()
+        print(f"Crawling {hostname}:{path} ...")
+        print(f"  NFS mounts loaded: {len(resolver.get_nfs_mounts())}")
+        start = datetime.now()
 
-    def progress(stats):
-        elapsed = (datetime.now() - start).total_seconds()
-        rate = stats["files_found"] / max(elapsed, 1)
-        print(
-            f"\r  {stats['files_found']:,} found, "
-            f"{stats['files_new']:,} new, "
-            f"{stats['files_skipped']:,} skipped, "
-            f"{format_size(stats['bytes_hashed'])} hashed "
-            f"({rate:.0f} files/sec)",
-            end="", flush=True
+        def progress(stats):
+            elapsed = (datetime.now() - start).total_seconds()
+            rate = stats["files_found"] / max(elapsed, 1)
+            print(
+                f"\r  {stats['files_found']:,} found, "
+                f"{stats['files_new']:,} new, "
+                f"{stats['files_skipped']:,} skipped, "
+                f"{format_size(stats['bytes_hashed'])} hashed "
+                f"({rate:.0f} files/sec)",
+                end="", flush=True
+            )
+
+        stats = crawler.crawl_local(
+            base_path=path,
+            hostname=hostname,
+            ip_address=ip,
+            access_hostname=hostname,
+            progress_callback=progress,
         )
 
-    stats = crawler.crawl_local(
-        base_path=path,
-        hostname=hostname,
-        ip_address=ip,
-        access_hostname=hostname,
-        progress_callback=progress,
-    )
-
-    elapsed = (datetime.now() - start).total_seconds()
-    print(f"\n\nCrawl complete in {elapsed:.1f}s:")
-    print(f"  Files found:    {stats.get('files_found', 0):,}")
-    print(f"  New files:      {stats.get('files_new', 0):,}")
-    print(f"  Skipped:        {stats.get('files_skipped', 0):,}")
-    print(f"  Errors:         {stats.get('files_error', 0):,}")
-    print(f"  Data hashed:    {format_size(stats.get('bytes_hashed', 0))}")
-
-    db.close()
+        elapsed = (datetime.now() - start).total_seconds()
+        print(f"\n\nCrawl complete in {elapsed:.1f}s:")
+        print(f"  Files found:    {stats.get('files_found', 0):,}")
+        print(f"  New files:      {stats.get('files_new', 0):,}")
+        print(f"  Skipped:        {stats.get('files_skipped', 0):,}")
+        print(f"  Errors:         {stats.get('files_error', 0):,}")
+        print(f"  Data hashed:    {format_size(stats.get('bytes_hashed', 0))}")
 
 
 def cmd_crawl_all(args, config: Config):
     """Crawl all accessible hosts."""
-    db = CatalogDB(config.database)
-    db.initialize()
+    with CatalogDB(config.database) as db:
+        # First discover
+        engine = DiscoveryEngine(config.discovery)
+        hosts, mounts = engine.run_full_discovery()
 
-    # First discover
-    engine = DiscoveryEngine(config.discovery)
-    hosts, mounts = engine.run_full_discovery()
-
-    # Store hosts
-    for ip, host in hosts.items():
-        db.upsert_host(
-            ip_address=ip,
-            hostname=host.hostname,
-            discovery_method=host.discovery_method,
-            ssh_accessible=host.ssh_accessible,
-        )
-
-    # Crawl local mounts first
-    resolver = MountResolver()
-    resolver.load()
-    crawler = FileCrawler(db, config.crawler, config.metadata, resolver)
-    local_hostname = get_local_hostname()
-    local_ip = get_local_ip()
-
-    # Crawl all discovered local mount points
-    for mp in mounts:
-        if os.path.isdir(mp.local_path):
-            print(f"\n--- Crawling local: {mp.local_path} ---")
-            stats = crawler.crawl_local(
-                base_path=mp.local_path,
-                hostname=local_hostname,
-                ip_address=local_ip,
-                access_hostname=local_hostname,
+        # Store hosts
+        for ip, host in hosts.items():
+            db.upsert_host(
+                ip_address=ip,
+                hostname=host.hostname,
+                discovery_method=host.discovery_method,
+                ssh_accessible=host.ssh_accessible,
             )
-            print(f"  Found {stats.get('files_found', 0):,} files, "
-                  f"{stats.get('files_new', 0):,} new")
 
-    # Also crawl configured search paths on local machine
-    for search_path in config.discovery.search_paths:
-        if os.path.isdir(search_path):
-            print(f"\n--- Crawling local: {search_path} ---")
-            stats = crawler.crawl_local(
-                base_path=search_path,
-                hostname=local_hostname,
-                ip_address=local_ip,
-                access_hostname=local_hostname,
-            )
-            print(f"  Found {stats.get('files_found', 0):,} files, "
-                  f"{stats.get('files_new', 0):,} new")
+        resolver = MountResolver()
+        resolver.load()
+        crawler = FileCrawler(db, config.crawler, config.metadata, resolver)
+        local_hostname = get_local_hostname()
+        local_ip = get_local_ip()
 
-    # Crawl accessible remote hosts
-    for ip, host in hosts.items():
-        if host.ssh_accessible and host.ip != local_ip:
-            for search_path in config.discovery.search_paths:
-                print(f"\n--- Crawling remote: {host.hostname or ip}:{search_path} ---")
-                stats = crawler.crawl_remote(
-                    host_ip=ip,
-                    hostname=host.hostname or ip,
-                    remote_path=search_path,
-                    ssh_user=config.discovery.ssh_user,
-                    ssh_key=config.discovery.ssh_key_path,
+        # Crawl all local paths: discovered mounts + configured search paths
+        local_paths = [mp.local_path for mp in mounts] + list(config.discovery.search_paths)
+        for path in local_paths:
+            if os.path.isdir(path):
+                print(f"\n--- Crawling local: {path} ---")
+                stats = crawler.crawl_local(
+                    base_path=path,
+                    hostname=local_hostname,
+                    ip_address=local_ip,
+                    access_hostname=local_hostname,
                 )
-                found = stats.get("files_found", 0)
-                if found:
-                    print(f"  Found {found:,} files")
+                print(f"  Found {stats.get('files_found', 0):,} files, "
+                      f"{stats.get('files_new', 0):,} new")
 
-    db.close()
+        # Crawl accessible remote hosts
+        for ip, host in hosts.items():
+            if host.ssh_accessible and host.ip != local_ip:
+                for search_path in config.discovery.search_paths:
+                    print(f"\n--- Crawling remote: {host.hostname or ip}:{search_path} ---")
+                    stats = crawler.crawl_remote(
+                        host_ip=ip,
+                        hostname=host.hostname or ip,
+                        remote_path=search_path,
+                        ssh_user=config.discovery.ssh_user,
+                        ssh_key=config.discovery.ssh_key_path,
+                    )
+                    found = stats.get("files_found", 0)
+                    if found:
+                        print(f"  Found {found:,} files")
 
 
 def cmd_search(args, config: Config):
     """Search the catalog."""
-    db = CatalogDB(config.database)
-    db.initialize()
+    with CatalogDB(config.database) as db:
+        searcher = CatalogSearch(db)
 
-    searcher = CatalogSearch(db)
+        # Parse size filters
+        min_size = _parse_size(args.min_size) if args.min_size else None
+        max_size = _parse_size(args.max_size) if args.max_size else None
 
-    # Parse size filters
-    min_size = _parse_size(args.min_size) if args.min_size else None
-    max_size = _parse_size(args.max_size) if args.max_size else None
-
-    result = searcher.search(
-        query=args.query,
-        nfs_server=args.server,
-        mime_type=args.mime,
-        sonar_format=args.format,
-        min_size=min_size,
-        max_size=max_size,
-        content_hash=args.hash,
-        limit=args.limit,
-        offset=args.offset,
-        output_format=args.output,
-    )
-    print(result)
-    db.close()
+        print(searcher.search(
+            query=args.query,
+            nfs_server=args.server,
+            mime_type=args.mime,
+            sonar_format=args.format,
+            min_size=min_size,
+            max_size=max_size,
+            content_hash=args.hash,
+            limit=args.limit,
+            offset=args.offset,
+            output_format=args.output,
+        ))
 
 
 def cmd_dupes(args, config: Config):
     """Find duplicate files."""
-    db = CatalogDB(config.database)
-    db.initialize()
-
-    searcher = CatalogSearch(db)
-    result = searcher.duplicates(
-        min_count=args.min_count,
-        limit=args.limit,
-        output_format=args.output,
-    )
-    print(result)
-    db.close()
+    with CatalogDB(config.database) as db:
+        print(CatalogSearch(db).duplicates(
+            min_count=args.min_count,
+            limit=args.limit,
+            output_format=args.output,
+        ))
 
 
 def cmd_where(args, config: Config):
     """Show all locations for a file hash."""
-    db = CatalogDB(config.database)
-    db.initialize()
-
-    searcher = CatalogSearch(db)
-    result = searcher.where_is(args.hash)
-    print(result)
-    db.close()
+    with CatalogDB(config.database) as db:
+        print(CatalogSearch(db).where_is(args.hash))
 
 
 def cmd_stats(args, config: Config):
     """Show catalog statistics."""
-    db = CatalogDB(config.database)
-    db.initialize()
-
-    searcher = CatalogSearch(db)
-    result = searcher.stats(output_format=args.output)
-    print(result)
-    db.close()
+    with CatalogDB(config.database) as db:
+        print(CatalogSearch(db).stats(output_format=args.output))
 
 
 def cmd_hosts(args, config: Config):
     """List discovered hosts."""
-    db = CatalogDB(config.database)
-    db.initialize()
-
-    searcher = CatalogSearch(db)
-    result = searcher.hosts(output_format=args.output)
-    print(result)
-    db.close()
+    with CatalogDB(config.database) as db:
+        print(CatalogSearch(db).hosts(output_format=args.output))
 
 
 def cmd_config(args, config: Config):
@@ -442,9 +389,283 @@ def cmd_add_magic_byte(args, config: Config):
     print(f"Total custom signatures: {len(config.metadata.custom_magic_bytes)}")
 
 
+def cmd_rebuild_index(args, config: Config):
+    """Rebuild the full-text search index."""
+    if config.database.backend == "postgresql":
+        print("FTS5 index is only used with the SQLite backend.", file=sys.stderr)
+        sys.exit(1)
+    with CatalogDB(config.database) as db:
+        print("Rebuilding FTS5 search index...")
+        db.rebuild_fts_index()
+        print("Index rebuilt successfully.")
+
+
+def cmd_extract_nav(args, config: Config):
+    """Extract navigation data from already-cataloged files."""
+    from .extractors import extract_nav
+    from .crawler import detect_sonar_format, FileCrawler
+
+    with CatalogDB(config.database) as db:
+        # Determine which files to process
+        if args.hash:
+            files = db.search_files(content_hash=args.hash, limit=1)
+        elif args.format:
+            files = db.search_files(sonar_format=args.format, limit=args.limit)
+        else:
+            files = _get_files_without_nav(db, limit=args.limit, force=args.force)
+
+        total = len(files)
+        extracted = 0
+        failed = 0
+
+        print(f"Extracting navigation from {total} files...")
+
+        for i, f in enumerate(files):
+            access_path = f.get("access_path", "")
+            if not access_path or not os.path.exists(access_path):
+                locs = db.get_locations_for_hash(f["content_hash"])
+                access_path = next(
+                    (loc["access_path"] for loc in locs
+                     if loc.get("access_path") and os.path.exists(loc["access_path"])),
+                    None
+                )
+                if not access_path:
+                    failed += 1
+                    continue
+
+            try:
+                result = extract_nav(
+                    access_path,
+                    sonar_format=f.get("sonar_format"),
+                    sidecar_config=config.metadata.nav_extraction.sidecar_patterns,
+                )
+                if result and result.track:
+                    track = result.track
+                    max_pts = config.metadata.nav_extraction.max_track_points
+                    if len(track) > max_pts:
+                        track = FileCrawler._downsample_track(track, max_pts)
+
+                    lats = [p[0] for p in track]
+                    lons = [p[1] for p in track]
+                    db.insert_nav_data(f["content_hash"], {
+                        "lat_min": min(lats), "lat_max": max(lats),
+                        "lon_min": min(lons), "lon_max": max(lons),
+                        "lat_center": (min(lats) + max(lats)) / 2,
+                        "lon_center": (min(lons) + max(lons)) / 2,
+                        "metadata": {
+                            "track": track,
+                            "source": result.source,
+                            "point_count_original": result.point_count_original,
+                            "point_count_stored": len(track),
+                        },
+                    })
+                    extracted += 1
+            except Exception as e:
+                if args.verbose:
+                    print(f"  Error: {access_path}: {e}")
+                failed += 1
+
+            if (i + 1) % 100 == 0:
+                print(f"  {i+1}/{total} processed, {extracted} extracted", flush=True)
+
+        print(f"\nDone: {extracted} files with nav data, {failed} failed, "
+              f"{total - extracted - failed} no nav data found")
+
+
+def _get_files_without_nav(db: CatalogDB, limit: int, force: bool = False) -> list[dict]:
+    """Get cataloged files that don't yet have navigation data."""
+    ph = db._ph
+    true_val = "TRUE" if db.backend == "postgresql" else "1"
+
+    if force:
+        sql = f"""
+            SELECT f.content_hash, f.sonar_format, l.access_path
+            FROM files f
+            JOIN locations l ON f.content_hash = l.content_hash
+            WHERE f.sonar_format IS NOT NULL
+            GROUP BY f.content_hash
+            LIMIT {ph}
+        """
+    else:
+        sql = f"""
+            SELECT f.content_hash, f.sonar_format, l.access_path
+            FROM files f
+            JOIN locations l ON f.content_hash = l.content_hash
+            LEFT JOIN file_metadata fm ON f.content_hash = fm.content_hash
+                AND fm.has_nav = {true_val}
+            WHERE fm.content_hash IS NULL
+              AND f.sonar_format IS NOT NULL
+            GROUP BY f.content_hash
+            LIMIT {ph}
+        """
+
+    results = []
+    with db.get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, (limit,))
+        for row in cur.fetchall():
+            results.append({
+                "content_hash": row[0],
+                "sonar_format": row[1],
+                "access_path": row[2],
+            })
+    return results
+
+
+def cmd_demo(args, config: Config):
+    """Load demo/simulation data for exploring the UI without real sonar data."""
+    from .demo import load_demo_data
+
+    with CatalogDB(config.database) as db:
+        num_files = args.num_files
+        seed = args.seed
+
+        print(f"Generating demo data ({num_files} files, seed={seed})...")
+        summary = load_demo_data(db, num_files=num_files, seed=seed)
+
+        print(f"\nDemo data loaded:")
+        print(f"  Files:      {summary['files']}")
+        print(f"  Locations:  {summary['locations']}")
+        print(f"  Nav tracks: {summary['nav_tracks']}")
+        print(f"  Hosts:      {summary['hosts']}")
+        print(f"\nYou can now explore with:")
+        print(f"  sonar-catalog search line")
+        print(f"  sonar-catalog stats")
+        print(f"  sonar-catalog web")
+
+
+def cmd_export(args, config: Config):
+    """Export catalog data to a file."""
+    from .plugins import plugin_manager, initialize_plugins
+
+    initialize_plugins(disabled_plugins=set(config.plugins.disabled_plugins))
+
+    format_name = args.export_format
+
+    # List available formats
+    if args.list_formats:
+        all_formats = plugin_manager.call_hook("get_export_formats")
+        print("Available export formats:")
+        for fmt_list in all_formats:
+            for fmt in fmt_list:
+                print(f"  {fmt['name']:<12} {fmt['description']:<30} {fmt.get('extension', '')}")
+        return
+
+    if not format_name:
+        print("Error: --format is required (use --list-formats to see options)", file=sys.stderr)
+        sys.exit(1)
+
+    with CatalogDB(config.database) as db:
+        # Get data to export
+        if args.geo:
+            data = db.get_geo_points(limit=args.limit)
+        else:
+            data = db.search_files(
+                sonar_format=args.sonar_format,
+                nfs_server=args.server,
+                limit=args.limit,
+            )
+
+        if not data:
+            print("No data to export.")
+            return
+
+        result = plugin_manager.call_hook(
+            "export_data",
+            data=data,
+            format_name=format_name,
+            output_path=args.output,
+        )
+
+        if result is None:
+            print(f"Error: no exporter found for format '{format_name}'", file=sys.stderr)
+            sys.exit(1)
+
+        if args.output:
+            print(f"Exported {len(data)} records to {args.output}")
+        else:
+            print(result)
+
+
+def cmd_web(args, config: Config):
+    """Start the web interface."""
+    try:
+        from .web import create_app
+    except ImportError:
+        print("Flask is not installed. Install with: pip install sonar-catalog[web]",
+              file=sys.stderr)
+        sys.exit(1)
+
+    app = create_app(config)
+    print(f"Starting Sonar Catalog at http://{args.host}:{args.port}")
+    app.run(host=args.host, port=args.port, debug=args.debug)
+
+
+def cmd_plugins(args, config: Config):
+    """List, enable, or disable plugins."""
+    from .plugins import plugin_manager, initialize_plugins
+
+    initialize_plugins(disabled_plugins=set(config.plugins.disabled_plugins))
+
+    if args.plugins_action == "list":
+        plugins = plugin_manager.list_plugins()
+        disabled = set(config.plugins.disabled_plugins)
+
+        if not plugins and not disabled:
+            print("No plugins registered.")
+            return
+
+        print(f"{'Plugin':<25} {'Version':<10} {'Status':<10} {'Hooks'}")
+        print("-" * 70)
+        for name, info in sorted(plugins.items()):
+            status = "enabled" if info.enabled else "disabled"
+            hooks = ", ".join(info.hooks) if info.hooks else "-"
+            print(f"{name:<25} {info.version:<10} {status:<10} {hooks}")
+
+        # Show disabled plugins not in the loaded list
+        for name in sorted(disabled):
+            if name not in plugins:
+                print(f"{name:<25} {'?':<10} {'disabled':<10} -")
+
+    elif args.plugins_action == "enable":
+        name = args.plugin_name
+        if name in config.plugins.disabled_plugins:
+            config.plugins.disabled_plugins.remove(name)
+            config.save()
+            print(f"Enabled plugin: {name}")
+            print("Restart to apply changes.")
+        else:
+            print(f"Plugin '{name}' is not in the disabled list.")
+
+    elif args.plugins_action == "disable":
+        name = args.plugin_name
+        if name == "builtin":
+            print("Warning: disabling the built-in plugin will remove all "
+                  "default format detection and nav extraction.", file=sys.stderr)
+        if name not in config.plugins.disabled_plugins:
+            config.plugins.disabled_plugins.append(name)
+            config.save()
+            print(f"Disabled plugin: {name}")
+            print("Restart to apply changes.")
+        else:
+            print(f"Plugin '{name}' is already disabled.")
+
+    elif args.plugins_action == "info":
+        name = args.plugin_name
+        info = plugin_manager.get_plugin(name)
+        if not info:
+            print(f"Plugin '{name}' not found.", file=sys.stderr)
+            sys.exit(1)
+        print(f"Name:        {info.name}")
+        print(f"Version:     {info.version}")
+        print(f"Description: {info.description}")
+        print(f"Enabled:     {info.enabled}")
+        print(f"Hooks:       {', '.join(info.hooks) if info.hooks else 'none'}")
+
+
 def cmd_list_magic_bytes(args, config: Config):
     """List all registered magic byte signatures (built-in + custom)."""
-    from .crawler import SONAR_SIGNATURES, EXTENSION_TO_FORMAT
+    from .plugins.builtin.formats import SONAR_SIGNATURES, EXTENSION_TO_FORMAT
 
     print("=== Built-in Magic Byte Signatures ===")
     for sig, fmt in SONAR_SIGNATURES.items():
@@ -611,6 +832,56 @@ def main():
         help="List all registered magic byte signatures (built-in + custom)"
     )
 
+    # extract-nav
+    p_extract = subparsers.add_parser("extract-nav",
+        help="Extract navigation/position data from cataloged sonar files")
+    p_extract.add_argument("--hash", help="Extract for a single file by content hash")
+    p_extract.add_argument("--format", "-f", help="Extract for all files of a sonar format")
+    p_extract.add_argument("--limit", type=int, default=10000,
+        help="Max files to process (default: 10000)")
+    p_extract.add_argument("--force", action="store_true",
+        help="Re-extract even if nav data already exists")
+
+    # plugins
+    p_plugins = subparsers.add_parser("plugins", help="Manage plugins")
+    p_plugins_sub = p_plugins.add_subparsers(dest="plugins_action")
+    p_plugins_sub.add_parser("list", help="List all registered plugins")
+    p_plugins_enable = p_plugins_sub.add_parser("enable", help="Enable a plugin")
+    p_plugins_enable.add_argument("plugin_name", help="Plugin name to enable")
+    p_plugins_disable = p_plugins_sub.add_parser("disable", help="Disable a plugin")
+    p_plugins_disable.add_argument("plugin_name", help="Plugin name to disable")
+    p_plugins_info = p_plugins_sub.add_parser("info", help="Show plugin details")
+    p_plugins_info.add_argument("plugin_name", help="Plugin name")
+
+    # demo
+    p_demo = subparsers.add_parser("demo", help="Load synthetic demo data for exploring the UI")
+    p_demo.add_argument("--num-files", type=int, default=500,
+                        help="Number of synthetic files to generate (default: 500)")
+    p_demo.add_argument("--seed", type=int, default=42,
+                        help="Random seed for reproducibility (default: 42)")
+
+    # export
+    p_export = subparsers.add_parser("export", help="Export catalog data to a file")
+    p_export.add_argument("--format", dest="export_format",
+                          help="Export format (csv, geojson, json)")
+    p_export.add_argument("--output", "-o", help="Output file path (omit for stdout)")
+    p_export.add_argument("--limit", type=int, default=10000, help="Max records to export")
+    p_export.add_argument("--geo", action="store_true",
+                          help="Export geographic points instead of file records")
+    p_export.add_argument("--server", help="Filter by NFS server")
+    p_export.add_argument("--sonar-format", help="Filter by sonar format")
+    p_export.add_argument("--list-formats", action="store_true",
+                          help="List available export formats")
+
+    # rebuild-index
+    subparsers.add_parser("rebuild-index", help="Rebuild FTS5 search index from existing data")
+
+    # web
+    p_web = subparsers.add_parser("web", help="Start the web interface")
+    p_web.add_argument("--port", "-p", type=int, default=8080, help="Port (default: 8080)")
+    p_web.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
+    p_web.add_argument("--debug", action="store_true", help="Enable debug mode")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -624,6 +895,10 @@ def main():
     config_path = args.config
     config = Config.load(config_path)
     setup_logging(log_level, config.log_file)
+
+    # Initialize plugin system
+    from .plugins import initialize_plugins
+    initialize_plugins(disabled_plugins=set(config.plugins.disabled_plugins))
 
     # Dispatch
     commands = {
@@ -639,6 +914,12 @@ def main():
         "config": cmd_config,
         "add-magic-byte": cmd_add_magic_byte,
         "list-magic-bytes": cmd_list_magic_bytes,
+        "plugins": cmd_plugins,
+        "extract-nav": cmd_extract_nav,
+        "rebuild-index": cmd_rebuild_index,
+        "demo": cmd_demo,
+        "export": cmd_export,
+        "web": cmd_web,
     }
 
     cmd_func = commands.get(args.command)

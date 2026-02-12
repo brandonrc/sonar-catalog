@@ -35,10 +35,14 @@ blake3 = [
 magic = [
     "python-magic>=0.4",
 ]
+web = [
+    "flask>=3.0",
+]
 all = [
     "psycopg2-binary>=2.9",
     "blake3>=0.4",
     "python-magic>=0.4",
+    "flask>=3.0",
 ]
 dev = [
     "pytest>=7.0",
@@ -64,6 +68,9 @@ tag_regex = "^(?:[\\w-]+-)?(?P<version>[vV]?\\d+(?:\\.\\d+)*(?:[._-]?\\w+)*)$"
 
 [tool.setuptools.packages.find]
 include = ["sonar_catalog*"]
+
+[tool.setuptools.package-data]
+"sonar_catalog.web" = ["templates/*.html", "static/*.js", "static/*.css"]
 
 # ---------------------------------------------------------------------------
 # Tool configs

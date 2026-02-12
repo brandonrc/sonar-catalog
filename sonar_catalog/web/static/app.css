@@ -1,0 +1,63 @@
+.nav-btn.active {
+    background-color: rgb(30 41 59); /* bg-gray-800 */
+    color: white;
+}
+
+.results-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.results-table th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    font-weight: 500;
+    color: rgb(156 163 175); /* gray-400 */
+    border-bottom: 1px solid rgb(55 65 81); /* gray-700 */
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.results-table td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid rgb(31 41 55); /* gray-800 */
+    color: rgb(209 213 219); /* gray-300 */
+    font-size: 0.8125rem;
+}
+
+.results-table tr:hover td {
+    background-color: rgb(17 24 39); /* gray-900 */
+}
+
+.results-table .clickable {
+    cursor: pointer;
+}
+
+.stat-card {
+    background: rgb(17 24 39);
+    border: 1px solid rgb(55 65 81);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+}
+
+.stat-card .label {
+    color: rgb(156 163 175);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.stat-card .value {
+    color: white;
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-top: 0.25rem;
+}
+
+.truncate-path {
+    max-width: 400px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

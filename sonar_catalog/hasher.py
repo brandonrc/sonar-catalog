@@ -14,7 +14,6 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional, Callable
 
 logger = logging.getLogger(__name__)
@@ -68,21 +67,6 @@ def _create_hasher(algorithm: str = "blake3"):
         raise ValueError(f"Unknown hash algorithm: {algorithm}")
 
 
-def _hash_update(hasher, data):
-    """Update hash object — handles both blake3 lib and hashlib API."""
-    if HAS_NATIVE_BLAKE3 and hasattr(hasher, "update"):
-        hasher.update(data)
-    else:
-        hasher.update(data)
-
-
-def _hash_hexdigest(hasher) -> str:
-    """Get hex digest from hash object."""
-    if HAS_NATIVE_BLAKE3 and hasattr(hasher, "hexdigest"):
-        return hasher.hexdigest()
-    return hasher.hexdigest()
-
-
 class FileHasher:
     """Handles file hashing with two-pass dedup optimization."""
 
@@ -114,21 +98,19 @@ class FileHasher:
 
             with open(path, "rb") as f:
                 # Read first chunk
-                first_chunk = f.read(self.partial_size)
-                _hash_update(hasher, first_chunk)
+                hasher.update(f.read(self.partial_size))
 
                 # If file is larger than 2x partial_size, also read last chunk
                 if size > self.partial_size * 2:
                     f.seek(-self.partial_size, os.SEEK_END)
-                    last_chunk = f.read(self.partial_size)
-                    _hash_update(hasher, last_chunk)
+                    hasher.update(f.read(self.partial_size))
 
                     # Also mix in the file size to avoid collisions
-                    _hash_update(hasher, str(size).encode())
+                    hasher.update(str(size).encode())
 
             return FileFingerprint(
                 size=size,
-                partial_hash=_hash_hexdigest(hasher),
+                partial_hash=hasher.hexdigest(),
             )
 
         except PermissionError:
@@ -168,12 +150,12 @@ class FileHasher:
                     if not chunk:
                         break
 
-                    _hash_update(full_hasher, chunk)
+                    full_hasher.update(chunk)
                     bytes_read += len(chunk)
 
                     # Build partial hash from first chunk
                     if not partial_done and bytes_read <= self.partial_size:
-                        _hash_update(partial_hasher, chunk)
+                        partial_hasher.update(chunk)
 
                     if not partial_done and bytes_read >= self.partial_size:
                         partial_done = True
@@ -183,22 +165,20 @@ class FileHasher:
                 last_hasher = _create_hasher(self.algorithm)
                 with open(path, "rb") as f:
                     # Read first chunk
-                    first_chunk = f.read(self.partial_size)
-                    _hash_update(last_hasher, first_chunk)
+                    last_hasher.update(f.read(self.partial_size))
                     # Read last chunk
                     f.seek(-self.partial_size, os.SEEK_END)
-                    last_chunk = f.read(self.partial_size)
-                    _hash_update(last_hasher, last_chunk)
-                    _hash_update(last_hasher, str(size).encode())
-                partial_hash = _hash_hexdigest(last_hasher)
+                    last_hasher.update(f.read(self.partial_size))
+                    last_hasher.update(str(size).encode())
+                partial_hash = last_hasher.hexdigest()
             else:
-                partial_hash = _hash_hexdigest(partial_hasher)
+                partial_hash = partial_hasher.hexdigest()
 
             return FileHash(
                 path=path,
                 size=size,
                 partial_hash=partial_hash,
-                full_hash=_hash_hexdigest(full_hasher),
+                full_hash=full_hasher.hexdigest(),
                 algorithm=self.algorithm,
             )
 

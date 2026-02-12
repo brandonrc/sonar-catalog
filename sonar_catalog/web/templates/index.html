@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Search Page -->
+<div id="page-search" class="page">
+    <div class="mb-6">
+        <div class="flex gap-3">
+            <input id="search-input" type="text" placeholder="Search files, paths, servers..."
+                   class="flex-1 rounded-lg bg-gray-900 border border-gray-700 px-4 py-2.5 text-white
+                          placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-ocean-500
+                          focus:border-transparent text-sm"
+                   onkeydown="if(event.key==='Enter') doSearch()">
+            <button onclick="doSearch()"
+                    class="px-5 py-2.5 bg-ocean-600 text-white text-sm font-medium rounded-lg
+                           hover:bg-ocean-700 focus:outline-none focus:ring-2 focus:ring-ocean-500">
+                Search
+            </button>
+        </div>
+        <!-- Filters -->
+        <div class="mt-3 flex gap-3 flex-wrap">
+            <select id="filter-server"
+                    class="rounded-md bg-gray-900 border border-gray-700 px-3 py-1.5 text-sm text-gray-300
+                           focus:outline-none focus:ring-1 focus:ring-ocean-500">
+                <option value="">All servers</option>
+            </select>
+            <select id="filter-format"
+                    class="rounded-md bg-gray-900 border border-gray-700 px-3 py-1.5 text-sm text-gray-300
+                           focus:outline-none focus:ring-1 focus:ring-ocean-500">
+                <option value="">All formats</option>
+            </select>
+            <input id="filter-min-size" type="text" placeholder="Min size (e.g. 1MB)"
+                   class="rounded-md bg-gray-900 border border-gray-700 px-3 py-1.5 text-sm text-gray-300 w-36
+                          focus:outline-none focus:ring-1 focus:ring-ocean-500">
+            <input id="filter-max-size" type="text" placeholder="Max size (e.g. 1GB)"
+                   class="rounded-md bg-gray-900 border border-gray-700 px-3 py-1.5 text-sm text-gray-300 w-36
+                          focus:outline-none focus:ring-1 focus:ring-ocean-500">
+        </div>
+    </div>
+
+    <div id="search-results" class="text-gray-400 text-sm">
+        Enter a search query to find sonar files across all servers.
+    </div>
+</div>
+
+<!-- Duplicates Page -->
+<div id="page-duplicates" class="page hidden">
+    <h2 class="text-lg font-semibold text-white mb-4">Duplicate Files</h2>
+    <div id="dupes-results" class="text-gray-400 text-sm">Loading...</div>
+</div>
+
+<!-- Hosts Page -->
+<div id="page-hosts" class="page hidden">
+    <h2 class="text-lg font-semibold text-white mb-4">Discovered Hosts</h2>
+    <div id="hosts-results" class="text-gray-400 text-sm">Loading...</div>
+</div>
+
+<!-- Stats Page -->
+<div id="page-stats" class="page hidden">
+    <h2 class="text-lg font-semibold text-white mb-4">Catalog Statistics</h2>
+    <div id="stats-results" class="text-gray-400 text-sm">Loading...</div>
+</div>
+
+<!-- File Detail Modal -->
+<div id="modal-overlay" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+     onclick="if(event.target===this) closeModal()">
+    <div class="bg-gray-900 border border-gray-700 rounded-xl max-w-3xl w-full max-h-[80vh] overflow-y-auto p-6">
+        <div class="flex justify-between items-start mb-4">
+            <h3 class="text-white font-semibold text-lg">File Details</h3>
+            <button onclick="closeModal()" class="text-gray-500 hover:text-white text-xl">&times;</button>
+        </div>
+        <div id="modal-content" class="text-sm text-gray-300"></div>
+    </div>
+</div>
+
+{% endblock %}

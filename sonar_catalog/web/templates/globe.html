@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-950">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonar Catalog - Globe</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ url_for('views.static', filename='app.css') }}">
+    <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Widgets/widgets.css">
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Cesium.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        ocean: {
+                            400: '#59b1ff',
+                            600: '#1a6ff5',
+                            700: '#1459e1',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        #cesiumContainer .cesium-viewer-bottom { display: none; }
+        #cesiumContainer .cesium-widget-credits { display: none !important; }
+    </style>
+</head>
+<body class="h-full bg-gray-950">
+    <div class="min-h-full">
+        <!-- Nav -->
+        <nav class="bg-gray-900 border-b border-gray-800">
+            <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                <div class="flex h-14 items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <a href="/" class="text-ocean-400 font-bold text-lg tracking-tight">Sonar Catalog</a>
+                    </div>
+                    <div class="flex gap-1">
+                        <a href="/"
+                           class="nav-btn px-3 py-1.5 text-sm rounded-md text-gray-300 hover:bg-gray-800 hover:text-white">Search</a>
+                        <a href="/globe"
+                           class="nav-btn active px-3 py-1.5 text-sm rounded-md text-white bg-gray-800">Globe</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Globe controls -->
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-3">
+            <div class="flex gap-3 items-center">
+                <select id="globe-format-filter"
+                        class="rounded-md bg-gray-900 border border-gray-700 px-3 py-1.5 text-sm text-gray-300
+                               focus:outline-none focus:ring-1 focus:ring-ocean-500">
+                    <option value="">All formats</option>
+                </select>
+                <span id="globe-point-count" class="text-gray-500 text-sm"></span>
+            </div>
+        </div>
+
+        <!-- CesiumJS container -->
+        <div class="px-4 sm:px-6 lg:px-8 pb-4" style="max-width: 100%;">
+            <div id="cesiumContainer" style="width: 100%; height: calc(100vh - 140px); border-radius: 0.75rem; overflow: hidden;"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('views.static', filename='globe.js') }}"></script>
+</body>
+</html>

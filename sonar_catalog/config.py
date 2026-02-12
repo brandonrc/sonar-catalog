@@ -18,8 +18,8 @@ DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "sonar-catalog" / "catalog.
 @dataclass
 class DatabaseConfig:
     """Database connection settings."""
-    # Use PostgreSQL by default; fall back to SQLite for single-machine setups
-    backend: str = "postgresql"  # "postgresql" or "sqlite"
+    # Use SQLite by default; upgrade to PostgreSQL for multi-machine setups
+    backend: str = "sqlite"  # "sqlite" or "postgresql"
     # PostgreSQL settings
     pg_host: str = "localhost"
     pg_port: int = 5432
@@ -90,6 +90,19 @@ class CrawlerConfig:
 
 
 @dataclass
+class NavExtractionConfig:
+    """Navigation/position data extraction settings."""
+    enabled: bool = True
+    max_track_points: int = 1000  # downsample tracks to this many points
+    extract_from_binary: bool = True  # parse JSF/XTF nav packets
+    timeout_seconds: int = 30  # max time per file extraction
+    # Sidecar file patterns for companion metadata files
+    # Example: [{"pattern": "{stem}.nav", "format": "csv",
+    #            "lat_field": "lat", "lon_field": "lon", "delimiter": ","}]
+    sidecar_patterns: list = field(default_factory=list)
+
+
+@dataclass
 class MetadataConfig:
     """Metadata extraction settings."""
     use_file_command: bool = True
@@ -119,6 +132,14 @@ class MetadataConfig:
     # Custom extension-to-format mappings (supplement the built-in ones)
     # e.g. {".sonarfile": "cool-custom", ".dat": "proprietary-sonar"}
     custom_extension_map: dict = field(default_factory=dict)
+    # Navigation/position extraction
+    nav_extraction: NavExtractionConfig = field(default_factory=NavExtractionConfig)
+
+
+@dataclass
+class PluginConfig:
+    """Plugin management settings."""
+    disabled_plugins: list = field(default_factory=list)
 
 
 @dataclass
@@ -128,6 +149,7 @@ class Config:
     discovery: DiscoveryConfig = field(default_factory=DiscoveryConfig)
     crawler: CrawlerConfig = field(default_factory=CrawlerConfig)
     metadata: MetadataConfig = field(default_factory=MetadataConfig)
+    plugins: PluginConfig = field(default_factory=PluginConfig)
     # Logging
     log_level: str = "INFO"
     log_file: Optional[str] = None
@@ -159,7 +181,13 @@ class Config:
         if "crawler" in data:
             config.crawler = CrawlerConfig(**data["crawler"])
         if "metadata" in data:
-            config.metadata = MetadataConfig(**data["metadata"])
+            meta_dict = dict(data["metadata"])
+            nav_dict = meta_dict.pop("nav_extraction", None)
+            config.metadata = MetadataConfig(**meta_dict)
+            if nav_dict:
+                config.metadata.nav_extraction = NavExtractionConfig(**nav_dict)
+        if "plugins" in data:
+            config.plugins = PluginConfig(**data["plugins"])
         if "log_level" in data:
             config.log_level = data["log_level"]
         if "log_file" in data:
