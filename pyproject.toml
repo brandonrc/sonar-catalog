@@ -1,18 +1,28 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "sonar-catalog"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Petabyte-scale sonar file catalog with deduplication across distributed NFS systems"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: System :: Filesystems",
+]
 
 dependencies = [
-    # Core - always needed
-    # (stdlib: sqlite3, os, subprocess, socket, hashlib, etc.)
+    # Core - all stdlib (sqlite3, os, subprocess, socket, hashlib, etc.)
 ]
 
 [project.optional-dependencies]
@@ -30,9 +40,48 @@ all = [
     "blake3>=0.4",
     "python-magic>=0.4",
 ]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+    "mypy>=1.0",
+]
 
 [project.scripts]
 sonar-catalog = "sonar_catalog.cli:main"
 
+# ---------------------------------------------------------------------------
+# setuptools-scm: derive version from git tags
+# ---------------------------------------------------------------------------
+[tool.setuptools_scm]
+# Writes version to sonar_catalog/_version.py at build time
+write_to = "sonar_catalog/_version.py"
+# Version format: tag = "v0.2.0" -> version = "0.2.0"
+# Untagged commits -> "0.2.0.dev3+g1a2b3c4"
+version_scheme = "guess-next-dev"
+local_scheme = "node-and-date"
+tag_regex = "^(?:[\\w-]+-)?(?P<version>[vV]?\\d+(?:\\.\\d+)*(?:[._-]?\\w+)*)$"
+
 [tool.setuptools.packages.find]
 include = ["sonar_catalog*"]
+
+# ---------------------------------------------------------------------------
+# Tool configs
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
