@@ -1,0 +1,90 @@
+---
+title: "Custom Formats"
+description: "Add custom sonar file format detection via magic bytes or extension mappings"
+---
+
+## Learning Magic Bytes from a Sample File
+
+The easiest way to add a custom format is to let Sonar Catalog read the magic bytes from a sample file:
+
+```bash
+sonar-catalog add-magic-byte /path/to/sample.myformat \
+  --format-name my_sonar \
+  --length 4 \
+  --description "My proprietary sonar format"
+```
+
+This reads the first 4 bytes from the sample file and registers them as the signature for `my_sonar`.
+
+### Options
+
+| Flag | Description |
+|---|---|
+| `--format-name` | Name for the format (defaults to file extension) |
+| `--length` | Number of magic bytes to read (default: 4) |
+| `--offset` | Byte offset to start reading from (default: 0) |
+| `--description` | Human-readable description |
+| `--no-extension` | Don't associate the file extension with this format |
+| `--force` | Replace an existing format with the same name |
+
+### With offset
+
+Some formats have magic bytes at a non-zero offset:
+
+```bash
+sonar-catalog add-magic-byte /path/to/sample.dat \
+  --format-name sonar_v2 \
+  --length 4 \
+  --offset 8 \
+  --description "SonarV2 format (magic at offset 8)"
+```
+
+## Custom Extension Mappings
+
+Add extension-to-format mappings in the config file:
+
+```json
+{
+  "metadata": {
+    "custom_extension_map": {
+      ".myformat": "my_sonar",
+      ".dat": "proprietary_sonar",
+      ".xyz": "bathymetry_export"
+    }
+  }
+}
+```
+
+## Config-Based Magic Bytes
+
+You can also add magic byte signatures directly in the config file:
+
+```json
+{
+  "metadata": {
+    "custom_magic_bytes": [
+      {
+        "format": "my_sonar",
+        "hex_bytes": "cafebabe",
+        "byte_length": 4,
+        "offset": 0,
+        "extension": ".myformat",
+        "description": "My custom sonar format"
+      }
+    ]
+  }
+}
+```
+
+| Field | Description |
+|---|---|
+| `format` | Format name |
+| `hex_bytes` | Hex-encoded magic bytes |
+| `byte_length` | Number of bytes |
+| `offset` | Byte offset in file |
+| `extension` | Associated file extension |
+| `description` | Human-readable description |
+
+## Plugin-Based Format Detection
+
+For more complex format detection logic (e.g., checking internal structures beyond magic bytes), write a plugin that implements the `detect_format` hook. See [Writing a Plugin](/docs/plugins/writing-a-plugin/).

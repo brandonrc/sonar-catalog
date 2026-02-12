@@ -1,0 +1,142 @@
+---
+title: "Configuration"
+description: "Configure database, discovery, crawler, metadata, and plugin settings"
+---
+
+Configuration lives at `~/.config/sonar-catalog/config.json`. All fields are optional — sensible defaults work out of the box.
+
+## Default Config Location
+
+| Setting | Default Path |
+|---|---|
+| Config file | `~/.config/sonar-catalog/config.json` |
+| SQLite database | `~/.local/share/sonar-catalog/catalog.db` |
+
+Override with `--config`:
+
+```bash
+sonar-catalog --config /path/to/config.json stats
+```
+
+## View Current Config
+
+```bash
+sonar-catalog config
+```
+
+Outputs the active configuration as JSON.
+
+## Full Configuration Reference
+
+```json
+{
+  "database": {
+    "backend": "sqlite",
+    "sqlite_path": "~/.local/share/sonar-catalog/catalog.db",
+    "pg_host": "localhost",
+    "pg_port": 5432,
+    "pg_database": "sonar_catalog",
+    "pg_user": "sonar_catalog",
+    "pg_password": ""
+  },
+  "discovery": {
+    "ssh_user": "survey",
+    "ssh_timeout": 3,
+    "ssh_key_path": null,
+    "ssh_auth_method": "key",
+    "ssh_password_file": null,
+    "ssh_host_key_policy": "accept-new",
+    "scan_subnets": [],
+    "hostname_patterns": ["sonar-*", "nas-*"],
+    "ip_ranges": [],
+    "use_autofs": true,
+    "use_ip_neigh": true,
+    "use_showmount": true,
+    "use_subnet_scan": false,
+    "host_whitelist": [],
+    "host_blacklist": [],
+    "search_paths": ["/data", "/sonar", "/survey", "/mnt", "/export"]
+  },
+  "crawler": {
+    "hash_algorithm": "blake3",
+    "partial_hash_size": 4194304,
+    "hash_workers": 4,
+    "crawl_workers": 2,
+    "batch_size": 1000,
+    "min_file_size": 0,
+    "max_file_size": 0,
+    "include_extensions": [],
+    "exclude_extensions": [".tmp", ".swp", ".lock", ".pid"],
+    "exclude_dirs": [".git", ".svn", "__pycache__", ".Trash", "lost+found"],
+    "incremental": true,
+    "checkpoint_interval": 5000
+  },
+  "metadata": {
+    "use_file_command": true,
+    "use_magic": true,
+    "sonar_extensions": [".xtf", ".jsf", ".s7k", ".all", ".kmall", ".bag"],
+    "custom_magic_bytes": [],
+    "custom_extension_map": {},
+    "nav_extraction": {
+      "enabled": true,
+      "max_track_points": 1000,
+      "extract_from_binary": true,
+      "timeout_seconds": 30,
+      "sidecar_patterns": []
+    }
+  },
+  "plugins": {
+    "disabled_plugins": []
+  },
+  "log_level": "INFO",
+  "log_file": null
+}
+```
+
+## Section Details
+
+### Database
+
+| Field | Default | Description |
+|---|---|---|
+| `backend` | `"sqlite"` | `"sqlite"` or `"postgresql"` |
+| `sqlite_path` | `~/.local/share/.../catalog.db` | Path to SQLite database file |
+| `pg_host` | `"localhost"` | PostgreSQL host |
+| `pg_port` | `5432` | PostgreSQL port |
+| `pg_database` | `"sonar_catalog"` | PostgreSQL database name |
+| `pg_user` | `"sonar_catalog"` | PostgreSQL username |
+
+### Discovery
+
+| Field | Default | Description |
+|---|---|---|
+| `ssh_user` | `"xyz"` | SSH username for probing remote hosts |
+| `ssh_timeout` | `3` | SSH connection timeout in seconds |
+| `ssh_auth_method` | `"key"` | `"key"`, `"sshpass_file"`, or `"sshpass_env"` |
+| `hostname_patterns` | `[]` | Glob patterns to filter discovered hosts (e.g., `["sonar-*"]`) |
+| `host_blacklist` | `[]` | Hostnames or IPs to never crawl |
+| `use_autofs` | `true` | Parse autofs maps for mount discovery |
+| `use_showmount` | `true` | Query NFS servers with showmount |
+| `use_subnet_scan` | `false` | Scan entire subnets (more aggressive) |
+
+### Crawler
+
+| Field | Default | Description |
+|---|---|---|
+| `hash_algorithm` | `"blake3"` | `"blake3"` (faster) or `"sha256"` (no deps) |
+| `partial_hash_size` | `4194304` | Bytes to read for the partial fingerprint (4MB) |
+| `hash_workers` | `4` | Parallel hashing threads |
+| `batch_size` | `1000` | Files per database batch insert |
+| `incremental` | `true` | Skip files whose mtime+size match catalog |
+| `include_extensions` | `[]` | Only crawl these extensions (empty = all) |
+| `exclude_extensions` | `[".tmp", ...]` | Skip these extensions |
+
+### Nav Extraction
+
+| Field | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Extract navigation data during crawl |
+| `max_track_points` | `1000` | Downsample tracks to this many points |
+| `extract_from_binary` | `true` | Parse JSF/XTF binary nav packets |
+| `timeout_seconds` | `30` | Max extraction time per file |
+| `sidecar_patterns` | `[]` | Companion file patterns (see [Nav Extraction](/docs/guides/nav-extraction/)) |

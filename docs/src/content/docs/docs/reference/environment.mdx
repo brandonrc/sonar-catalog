@@ -1,0 +1,140 @@
+---
+title: "Environment & Config Files"
+description: "File paths, environment variables, and configuration precedence"
+---
+
+## File Paths
+
+| File | Default Location | Description |
+|---|---|---|
+| Config | `~/.config/sonar-catalog/config.json` | JSON configuration |
+| Database | `~/.local/share/sonar-catalog/catalog.db` | SQLite database |
+
+Override config path:
+
+```bash
+sonar-catalog --config /path/to/config.json COMMAND
+```
+
+## Config Precedence
+
+1. CLI flags (highest priority)
+2. Config file (`--config` or default path)
+3. Built-in defaults (lowest priority)
+
+## Configuration Sections
+
+| Section | Key Settings |
+|---|---|
+| `database` | Backend (sqlite/postgresql), connection details |
+| `discovery` | SSH settings, hostname patterns, discovery methods |
+| `crawler` | Hash algorithm, workers, filters, incremental mode |
+| `metadata` | MIME detection, sonar extensions, custom magic bytes, nav extraction |
+| `plugins` | Disabled plugin list |
+| `log_level` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `log_file` | Path to log file (null = stderr only) |
+
+## SSH Authentication
+
+For host discovery, three authentication methods:
+
+### SSH Key (default)
+
+Uses ssh-agent or a key file:
+
+```json
+{
+  "discovery": {
+    "ssh_auth_method": "key",
+    "ssh_key_path": "~/.ssh/id_ed25519"
+  }
+}
+```
+
+### Password File
+
+Reads password from a file (must be mode 0600):
+
+```json
+{
+  "discovery": {
+    "ssh_auth_method": "sshpass_file",
+    "ssh_password_file": "/etc/sonar-catalog/ssh-password"
+  }
+}
+```
+
+### Environment Variable
+
+Reads password from `SSHPASS`:
+
+```json
+{
+  "discovery": {
+    "ssh_auth_method": "sshpass_env"
+  }
+}
+```
+
+```bash
+export SSHPASS="your-password"
+sonar-catalog discover
+```
+
+## Database Backend Selection
+
+### SQLite (default)
+
+Zero configuration. Database is a single file. Supports FTS5 for full-text search.
+
+```json
+{
+  "database": {
+    "backend": "sqlite",
+    "sqlite_path": "/path/to/catalog.db"
+  }
+}
+```
+
+### PostgreSQL
+
+For multi-machine setups with concurrent crawlers:
+
+```json
+{
+  "database": {
+    "backend": "postgresql",
+    "pg_host": "db.example.com",
+    "pg_port": 5432,
+    "pg_database": "sonar_catalog",
+    "pg_user": "sonar_catalog",
+    "pg_password": "secret"
+  }
+}
+```
+
+## Logging
+
+```json
+{
+  "log_level": "DEBUG",
+  "log_file": "/var/log/sonar-catalog.log"
+}
+```
+
+Or via CLI:
+
+```bash
+sonar-catalog -v crawl /mnt/nas01     # verbose (DEBUG)
+sonar-catalog -q crawl /mnt/nas01     # quiet (WARNING)
+```
+
+## Project Structure
+
+```
+~/.config/sonar-catalog/
+    config.json              # User configuration
+
+~/.local/share/sonar-catalog/
+    catalog.db               # SQLite database
+```

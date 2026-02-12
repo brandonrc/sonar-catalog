@@ -1,0 +1,70 @@
+---
+title: "Installation"
+description: "Install Sonar Catalog with optional extras for BLAKE3, PostgreSQL, web UI, and MIME detection"
+---
+
+## Requirements
+
+- **Python 3.10+**
+- No external dependencies required for the core
+
+## Basic Install
+
+```bash
+# From the project directory
+pip install .
+```
+
+This installs the `sonar-catalog` CLI with SQLite backend and SHA-256 hashing. No C extensions or system libraries needed.
+
+## Optional Extras
+
+Install individual extras based on your needs:
+
+```bash
+# BLAKE3 hashing (5-10x faster than SHA-256)
+pip install ".[blake3]"
+
+# Flask web UI with CesiumJS globe
+pip install ".[web]"
+
+# PostgreSQL backend (for multi-machine setups)
+pip install ".[postgres]"
+
+# python-magic MIME type detection
+pip install ".[magic]"
+
+# Everything
+pip install ".[all]"
+```
+
+## Development Install
+
+```bash
+pip install -e ".[dev,all]"
+```
+
+This adds pytest, pytest-cov, ruff, and mypy for development.
+
+## Extra Details
+
+| Extra | Package | Purpose |
+|---|---|---|
+| `blake3` | `blake3>=0.4` | BLAKE3 content hashing — significantly faster than SHA-256 on large files |
+| `web` | `flask>=3.0` | Web interface with search UI and CesiumJS 3D globe |
+| `postgres` | `psycopg2-binary>=2.9` | PostgreSQL database backend for multi-machine deployments |
+| `magic` | `python-magic>=0.4` | MIME type detection via libmagic |
+| `dev` | pytest, ruff, mypy | Testing and linting tools |
+
+## Verify Installation
+
+```bash
+sonar-catalog --version
+sonar-catalog --help
+```
+
+## Platform Notes
+
+- **macOS**: Works out of the box. NFS mount discovery uses the `mount` command.
+- **Linux**: Full feature set. Uses `/proc/mounts`, autofs maps, and `showmount`.
+- **Windows**: Not supported (NFS mount resolution depends on Unix paths).

@@ -1,0 +1,282 @@
+---
+title: "CLI Commands"
+description: "Complete reference for all 18 sonar-catalog CLI commands"
+---
+
+## Global Options
+
+```bash
+sonar-catalog [--config CONFIG] [--verbose] [--quiet] [--version] COMMAND
+```
+
+| Flag | Description |
+|---|---|
+| `--config`, `-c` | Config file path (default: `~/.config/sonar-catalog/config.json`) |
+| `--verbose`, `-v` | Verbose logging output |
+| `--quiet`, `-q` | Suppress non-essential output |
+| `--version` | Show version and exit |
+
+---
+
+## Database & Setup
+
+### init
+
+Initialize the database and create a default config file.
+
+```bash
+sonar-catalog init
+```
+
+### config
+
+Show the current configuration as JSON.
+
+```bash
+sonar-catalog config
+```
+
+### rebuild-index
+
+Rebuild the FTS5 full-text search index from existing data.
+
+```bash
+sonar-catalog rebuild-index
+```
+
+---
+
+## Discovery
+
+### discover
+
+Discover NFS hosts and mounts on the network.
+
+```bash
+sonar-catalog discover
+sonar-catalog discover --deep
+```
+
+| Flag | Description |
+|---|---|
+| `--deep` | SSH into accessible hosts to discover remote mounts |
+
+### hosts
+
+List discovered hosts and their status.
+
+```bash
+sonar-catalog hosts
+sonar-catalog hosts --output json
+```
+
+---
+
+## Crawling
+
+### crawl
+
+Crawl and catalog a directory.
+
+```bash
+sonar-catalog crawl /mnt/sonar-nas-01
+sonar-catalog crawl /data/survey --host sonar-01 --ip 192.168.1.10
+```
+
+| Flag | Description |
+|---|---|
+| `PATH` | Directory to crawl (required) |
+| `--host` | Override hostname for NFS resolution |
+| `--ip` | Override IP address |
+
+### crawl-all
+
+Discover and crawl all accessible hosts in one step.
+
+```bash
+sonar-catalog crawl-all
+```
+
+---
+
+## Querying
+
+### search
+
+Search the catalog by filename, format, server, or size.
+
+```bash
+sonar-catalog search "line_001"
+sonar-catalog search --format xtf --server nas01
+sonar-catalog search --min-size 1GB --max-size 10GB
+sonar-catalog search --output json --limit 100
+```
+
+| Flag | Description |
+|---|---|
+| `PATTERN` | Filename search pattern |
+| `--format` | Filter by sonar format |
+| `--server` | Filter by NFS server |
+| `--min-size` | Minimum file size (supports K, M, G, T suffixes) |
+| `--max-size` | Maximum file size |
+| `--hash` | Search by content hash |
+| `--output` | Output format: `table` (default) or `json` |
+| `--limit` | Max results (default: 50) |
+
+### dupes
+
+Find duplicate files across servers.
+
+```bash
+sonar-catalog dupes
+sonar-catalog dupes --output json --min-count 3
+```
+
+| Flag | Description |
+|---|---|
+| `--min-count` | Minimum duplicate count (default: 2) |
+| `--output` | Output format: `table` or `json` |
+
+### where
+
+Show all locations for a file by content hash.
+
+```bash
+sonar-catalog where abc123def456...
+```
+
+### stats
+
+Show catalog statistics.
+
+```bash
+sonar-catalog stats
+```
+
+---
+
+## Navigation
+
+### extract-nav
+
+Extract navigation/position data from cataloged sonar files.
+
+```bash
+sonar-catalog extract-nav
+sonar-catalog extract-nav --format jsf
+sonar-catalog extract-nav --hash abc123...
+sonar-catalog extract-nav --force
+```
+
+| Flag | Description |
+|---|---|
+| `--format` | Only extract from files of this format |
+| `--hash` | Extract for a single file by content hash |
+| `--force` | Re-extract even if nav data already exists |
+
+---
+
+## Formats
+
+### add-magic-byte
+
+Learn a file format's magic bytes from a sample file.
+
+```bash
+sonar-catalog add-magic-byte /path/to/sample.myformat \
+  --format-name my_sonar --length 4 --description "My format"
+```
+
+| Flag | Description |
+|---|---|
+| `FILE` | Path to a sample file (required) |
+| `--format-name` | Name for the format (defaults to extension) |
+| `--length` | Bytes to read (default: 4) |
+| `--offset` | Byte offset (default: 0) |
+| `--description` | Human-readable description |
+| `--no-extension` | Don't associate the extension |
+| `--force` | Replace existing format |
+
+### list-magic-bytes
+
+Show all registered magic byte signatures (built-in + custom).
+
+```bash
+sonar-catalog list-magic-bytes
+```
+
+---
+
+## Export
+
+### export
+
+Export catalog data to a file or stdout.
+
+```bash
+sonar-catalog export --format csv --output catalog.csv
+sonar-catalog export --format geojson --geo --output tracks.geojson
+sonar-catalog export --format json
+sonar-catalog export --list-formats
+```
+
+| Flag | Description |
+|---|---|
+| `--format` | Export format: `csv`, `geojson`, `json` (or plugin formats) |
+| `--output` | Output file path (stdout if omitted) |
+| `--geo` | Export geographic data instead of file listing |
+| `--limit` | Max records to export |
+| `--list-formats` | List available export formats and exit |
+
+---
+
+## Plugins
+
+### plugins list
+
+List installed plugins and their hooks.
+
+```bash
+sonar-catalog plugins list
+```
+
+### plugins enable / disable
+
+Enable or disable a plugin.
+
+```bash
+sonar-catalog plugins enable my-sonar-plugin
+sonar-catalog plugins disable my-sonar-plugin
+```
+
+---
+
+## Demo & Web
+
+### demo
+
+Load synthetic demo data for exploring the UI.
+
+```bash
+sonar-catalog demo --num-files 100 --seed 42
+```
+
+| Flag | Description |
+|---|---|
+| `--num-files` | Number of synthetic files (default: 50) |
+| `--seed` | Random seed for reproducible data (default: 42) |
+
+### web
+
+Start the Flask web interface.
+
+```bash
+sonar-catalog web --port 8080
+sonar-catalog web --host 0.0.0.0 --port 9090 --debug
+```
+
+| Flag | Description |
+|---|---|
+| `--host` | Bind address (default: `127.0.0.1`) |
+| `--port` | Port number (default: `8080`) |
+| `--debug` | Enable Flask debug mode with auto-reload |

@@ -1,0 +1,199 @@
+---
+title: "REST API Reference"
+description: "Complete REST API reference for the Sonar Catalog web interface"
+---
+
+All endpoints are under `/api/` and return JSON.
+
+## Search & Files
+
+### GET /api/search
+
+Search the catalog.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `q` | string | — | Filename search query (FTS5) |
+| `server` | string | — | Filter by NFS server |
+| `format` | string | — | Filter by sonar format |
+| `hash` | string | — | Search by content hash |
+| `min_size` | int | — | Minimum file size (bytes) |
+| `max_size` | int | — | Maximum file size (bytes) |
+| `limit` | int | 100 | Max results |
+| `offset` | int | 0 | Pagination offset |
+
+**Response:** Array of file objects.
+
+```json
+[
+  {
+    "content_hash": "6017380fd98a...",
+    "file_name": "swath_251.xtf",
+    "file_size": 479391423,
+    "sonar_format": "xtf",
+    "nfs_server": "sonar-nas-01",
+    "nfs_export": "/export/sonar",
+    "canonical_path": "sonar-nas-01:/export/sonar/coastal/swath_251.xtf",
+    "access_path": "/mnt/sonar-nas-01/export/sonar/coastal/swath_251.xtf",
+    "mtime": "2024-08-02T15:29:33",
+    "discovered_at": "2026-02-12 21:29:33"
+  }
+]
+```
+
+### GET /api/files/:content_hash
+
+Get file info and all locations for a content hash.
+
+**Response:**
+
+```json
+{
+  "file": { ... },
+  "locations": [
+    {
+      "canonical_path": "nas01:/export/survey/line_001.xtf",
+      "access_path": "/mnt/nas01/export/survey/line_001.xtf",
+      "nfs_server": "nas01",
+      "is_local": false
+    },
+    {
+      "canonical_path": "nas02:/backup/survey/line_001.xtf",
+      "access_path": "/mnt/nas02/backup/survey/line_001.xtf",
+      "nfs_server": "nas02",
+      "is_local": false
+    }
+  ]
+}
+```
+
+### GET /api/duplicates
+
+Find duplicate files.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `min_count` | int | 2 | Minimum location count |
+| `limit` | int | 50 | Max results |
+
+### GET /api/stats
+
+Get catalog statistics.
+
+**Response:**
+
+```json
+{
+  "unique_files": 12847,
+  "total_locations": 19283,
+  "unique_bytes": 4523456789012,
+  "nfs_servers_with_data": 8,
+  "nfs_locations": 19283,
+  "local_locations": 0,
+  "sonar_formats": 6,
+  "total_hosts": 12,
+  "accessible_hosts": 8
+}
+```
+
+---
+
+## Hosts & Filters
+
+### GET /api/hosts
+
+List discovered hosts with file counts.
+
+**Response:**
+
+```json
+[
+  {
+    "ip": "192.168.1.10",
+    "hostname": "sonar-nas-01",
+    "method": "autofs",
+    "ssh": true,
+    "last_scan": "2026-02-12 15:30:00",
+    "status": "complete",
+    "files": 4521
+  }
+]
+```
+
+### GET /api/servers
+
+Get distinct NFS server names (for filter dropdowns).
+
+**Response:** `["sonar-nas-01", "sonar-nas-02", "backup-nas"]`
+
+### GET /api/formats
+
+Get distinct sonar formats (for filter dropdowns).
+
+**Response:** `["all", "bag", "jsf", "kmall", "s7k", "xtf"]`
+
+---
+
+## Geographic / Navigation
+
+### GET /api/geo/points
+
+Get file locations as map points for the globe view.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `lat_min` | float | — | Southern bound |
+| `lat_max` | float | — | Northern bound |
+| `lon_min` | float | — | Western bound |
+| `lon_max` | float | — | Eastern bound |
+| `format` | string | — | Filter by sonar format |
+| `limit` | int | 10000 | Max points |
+
+**Response:**
+
+```json
+[
+  {
+    "content_hash": "6017380fd98a...",
+    "file_name": "swath_251.xtf",
+    "file_size": 479391423,
+    "sonar_format": "xtf",
+    "lat": 28.0005,
+    "lon": -89.9985
+  }
+]
+```
+
+### GET /api/geo/track/:content_hash
+
+Get the full navigation track for a file.
+
+**Response:**
+
+```json
+{
+  "content_hash": "6017380fd98a...",
+  "track": [[28.0, -90.0], [28.001, -89.999], [28.002, -89.998]],
+  "lat_min": 28.0,
+  "lat_max": 28.002,
+  "lon_min": -90.0,
+  "lon_max": -89.998,
+  "point_count": 342
+}
+```
+
+### GET /api/geo/bounds
+
+Get the overall geographic extent of all files with nav data.
+
+**Response:**
+
+```json
+{
+  "lat_min": -18.5,
+  "lat_max": 62.5,
+  "lon_min": -90.0,
+  "lon_max": 147.5,
+  "file_count": 847
+}
+```

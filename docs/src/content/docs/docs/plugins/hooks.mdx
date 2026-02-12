@@ -1,0 +1,184 @@
+---
+title: "Hook Reference"
+description: "Complete reference for all 7 plugin hook extension points"
+---
+
+## Hook Summary
+
+| Hook | Mode | Description |
+|---|---|---|
+| `detect_format` | firstresult | Identify a sonar file's format |
+| `extract_nav` | firstresult | Extract lat/lon track from a file |
+| `get_format_signatures` | historic | Contribute magic byte signatures |
+| `get_extension_map` | historic | Contribute extension-to-format mappings |
+| `export_data` | firstresult | Export data to a specific format |
+| `get_export_formats` | historic | List available export formats |
+| `register_web_routes` | historic | Add routes to the Flask web app |
+
+---
+
+## detect_format
+
+**Mode:** firstresult (first non-`None` result wins)
+
+Identify the sonar format of a file based on its header bytes and/or extension.
+
+### Parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `file_path` | `str` | Absolute path to the file |
+| `header` | `bytes` | First 32 bytes of the file |
+| `extension` | `str` | File extension (lowercase, with dot) |
+
+### Returns
+
+`str` — Format name (e.g., `"xtf"`, `"jsf"`), or `None` to pass.
+
+### Example
+
+```python
+def detect_my_format(file_path=None, header=None, extension=None, **kw):
+    if header and header[:2] == b"\xAB\xCD":
+        return "my_format"
+    return None
+```
+
+---
+
+## extract_nav
+
+**Mode:** firstresult
+
+Extract navigation (lat/lon) track data from a sonar file.
+
+### Parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `file_path` | `str` | Absolute path to the file |
+| `sonar_format` | `str` | Detected format name |
+| `sidecar_config` | `list[dict]` | Sidecar file patterns from config |
+
+### Returns
+
+`NavResult` — with `.track` (list of `[lat, lon]` pairs) and `.source` (string identifier), or `None`.
+
+```python
+from sonar_catalog.extractors.base import NavResult
+
+def extract_my_nav(file_path=None, sonar_format=None, **kw):
+    if sonar_format != "my_format":
+        return None
+    track = parse_my_file(file_path)
+    return NavResult(track=track, source="my_format_nav")
+```
+
+---
+
+## get_format_signatures
+
+**Mode:** historic (all plugins contribute)
+
+Return magic byte signatures and extension mappings for format detection.
+
+### Parameters
+
+None (called with no arguments).
+
+### Returns
+
+`dict` with optional keys:
+
+```python
+{
+    "signatures": [
+        {
+            "format": "my_format",
+            "hex_bytes": "abcd",
+            "byte_length": 2,
+            "offset": 0,
+        }
+    ],
+    "extensions": {
+        ".myf": "my_format",
+    },
+}
+```
+
+---
+
+## get_extension_map
+
+**Mode:** historic
+
+Return a mapping of file extensions to format names.
+
+### Returns
+
+`dict[str, str]` — e.g., `{".myf": "my_format", ".myformat": "my_format"}`
+
+---
+
+## export_data
+
+**Mode:** firstresult
+
+Export catalog data to a specific file format.
+
+### Parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `data` | `list[dict]` | Rows from the catalog |
+| `format_name` | `str` | Target format (e.g., `"csv"`, `"geojson"`) |
+| `output_path` | `str` or `None` | Output file path (None = return as string) |
+
+### Returns
+
+`str` — The output (file path or string content), or `None` to pass.
+
+---
+
+## get_export_formats
+
+**Mode:** historic
+
+List the export formats this plugin provides.
+
+### Returns
+
+`list[dict]` — Format descriptors:
+
+```python
+[
+    {
+        "name": "my_export",
+        "description": "My custom export format",
+        "extension": ".myexp",
+    }
+]
+```
+
+---
+
+## register_web_routes
+
+**Mode:** historic
+
+Register additional routes on the Flask web application.
+
+### Parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `app` | `Flask` | The Flask application instance |
+
+### Example
+
+```python
+def register_my_routes(app=None, **kw):
+    @app.route("/my-plugin/status")
+    def plugin_status():
+        return {"status": "ok"}
+```

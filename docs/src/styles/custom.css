@@ -1,0 +1,20 @@
+/* Sonar Catalog — ocean-themed branding for Starlight */
+:root {
+	--sl-color-accent-low: #0c2d48;
+	--sl-color-accent: #1a6ff5;
+	--sl-color-accent-high: #59b1ff;
+	--sl-color-white: #ffffff;
+	--sl-color-gray-1: #eef1f5;
+	--sl-color-gray-2: #c2c7cf;
+	--sl-color-gray-3: #8b92a0;
+	--sl-color-gray-4: #555d6e;
+	--sl-color-gray-5: #353b48;
+	--sl-color-gray-6: #22272f;
+	--sl-color-black: #0e1520;
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent-low: #e0efff;
+	--sl-color-accent: #1459e1;
+	--sl-color-accent-high: #0c2d48;
+}

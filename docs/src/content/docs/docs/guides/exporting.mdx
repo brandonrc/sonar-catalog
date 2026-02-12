@@ -1,0 +1,86 @@
+---
+title: "Exporting Data"
+description: "Export catalog data to CSV, GeoJSON, or JSON formats"
+---
+
+## Export Formats
+
+Sonar Catalog supports exporting data through the plugin hook system. Built-in formats:
+
+| Format | Description | Use Case |
+|---|---|---|
+| `csv` | Comma-separated values | Spreadsheets, data analysis |
+| `geojson` | GeoJSON FeatureCollection | GIS tools (QGIS, ArcGIS) |
+| `json` | JSON array | Scripting, custom processing |
+
+## List Available Formats
+
+```bash
+sonar-catalog export --list-formats
+```
+
+Plugins can add additional export formats (e.g., Shapefile, KML).
+
+## Export Commands
+
+### Export all files to CSV
+
+```bash
+sonar-catalog export --format csv --output catalog.csv
+```
+
+### Export with geographic data
+
+```bash
+sonar-catalog export --format geojson --geo --output survey_tracks.geojson
+```
+
+The `--geo` flag exports geographic point data (files with nav tracks) instead of the full file listing.
+
+### Export to stdout
+
+```bash
+sonar-catalog export --format json
+```
+
+Omit `--output` to write to stdout, useful for piping:
+
+```bash
+sonar-catalog export --format json | jq '.[] | select(.sonar_format == "xtf")'
+```
+
+### Limit and filter
+
+```bash
+sonar-catalog export --format csv --limit 1000
+```
+
+## GeoJSON Output
+
+The GeoJSON export produces a FeatureCollection compatible with any GIS tool:
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [3.456, 56.123]
+      },
+      "properties": {
+        "content_hash": "abc123...",
+        "file_name": "line_001.xtf",
+        "file_size": 524288000,
+        "sonar_format": "xtf",
+        "nfs_server": "sonar-nas-01"
+      }
+    }
+  ]
+}
+```
+
+## Adding Custom Export Formats
+
+Plugins can register new export formats via the `export_data` and `get_export_formats` hooks. See [Writing a Plugin](/docs/plugins/writing-a-plugin/).

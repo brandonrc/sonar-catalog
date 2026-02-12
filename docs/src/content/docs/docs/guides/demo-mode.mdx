@@ -1,0 +1,75 @@
+---
+title: "Demo Mode"
+description: "Generate synthetic sonar data to explore the UI without real sonar files"
+---
+
+## Why Demo Mode?
+
+If you don't have sonar files handy but want to explore the web UI, globe visualization, or test the CLI, the demo command generates realistic synthetic data.
+
+## Generate Demo Data
+
+```bash
+# Initialize first
+sonar-catalog init
+
+# Generate 100 synthetic files
+sonar-catalog demo --num-files 100
+
+# Use a specific random seed for reproducible results
+sonar-catalog demo --num-files 50 --seed 12345
+```
+
+## What Gets Generated
+
+The demo generates:
+
+- **Synthetic files** with realistic sizes (100MB - 2GB), names, and sonar formats
+- **Multiple NFS servers** (4 simulated: `sonar-nas-01` through `sonar-nas-04`)
+- **Duplicate locations** — some files appear on multiple servers to demonstrate deduplication
+- **Navigation tracks** — zigzag survey patterns across 8 global regions
+- **Host records** — simulated discovered hosts with SSH status
+
+### Survey Regions
+
+| Region | Center | Area |
+|---|---|---|
+| Gulf of Mexico | 28.0N, 90.0W | Coastal survey |
+| North Sea | 56.0N, 3.0E | Offshore energy |
+| Norwegian Coast | 62.0N, 6.0E | Fjord mapping |
+| US East Coast | 37.5N, 76.0W | Continental shelf |
+| Mediterranean | 36.0N, 15.0E | Seabed survey |
+| Great Barrier Reef | -18.0S, 147.0E | Reef mapping |
+| Persian Gulf | 26.0N, 52.0E | Subsea pipeline |
+| South China Sea | 15.0N, 115.0E | Hydrographic |
+
+### Sonar Formats
+
+Generated files use real sonar format extensions and types: XTF, JSF, S7K, KMALL, ALL, BAG, RAW, and DB.
+
+## Exploring After Demo
+
+```bash
+# Statistics
+sonar-catalog stats
+
+# Search
+sonar-catalog search "line"
+
+# Duplicates
+sonar-catalog dupes
+
+# Start the web UI
+sonar-catalog web --port 8080
+# Visit http://localhost:8080 for search
+# Visit http://localhost:8080/globe for the 3D globe
+```
+
+## Deterministic Generation
+
+With the same `--seed`, demo always generates the same data. This is useful for testing or reproducible demos:
+
+```bash
+sonar-catalog demo --num-files 100 --seed 42
+# Always produces the exact same files, locations, and tracks
+```

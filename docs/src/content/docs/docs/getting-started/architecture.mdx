@@ -1,0 +1,242 @@
+---
+title: "Architecture"
+description: "System design, component relationships, and data flow through Sonar Catalog"
+---
+
+## System Overview
+
+Sonar Catalog is composed of six subsystems that work together to discover, catalog, deduplicate, and visualize sonar files across distributed NFS storage.
+
+```mermaid
+graph TB
+    subgraph CLI["CLI Layer"]
+        init[init]
+        discover[discover]
+        crawl[crawl / crawl-all]
+        search[search / dupes / where]
+        extractnav[extract-nav]
+        demo[demo]
+        export[export]
+        web[web]
+    end
+
+    subgraph Core["Core Engine"]
+        DE[Discovery Engine]
+        MR[Mount Resolver]
+        FC[File Crawler]
+        FH[File Hasher]
+        CS[Catalog Search]
+    end
+
+    subgraph Plugins["Plugin System"]
+        PM[Plugin Manager]
+        HS[Hook Specs]
+        BI[Built-in Plugin]
+        TP[Third-Party Plugins]
+    end
+
+    subgraph Storage["Storage Layer"]
+        DB[(SQLite / PostgreSQL)]
+        FTS[FTS5 Full-Text Index]
+    end
+
+    subgraph Extractors["Nav Extractors"]
+        JSF[JSF Parser]
+        XTF[XTF Parser]
+        NMEA[NMEA Parser]
+        SC[Sidecar Reader]
+    end
+
+    subgraph WebUI["Web Interface"]
+        Flask[Flask App]
+        API[REST API]
+        Globe[CesiumJS Globe]
+        SearchUI[Search UI]
+    end
+
+    discover --> DE
+    crawl --> FC
+    FC --> FH
+    FC --> MR
+    search --> CS
+    extractnav --> Extractors
+    web --> Flask
+
+    DE --> DB
+    FC --> DB
+    CS --> DB
+    API --> DB
+    FTS -.-> DB
+
+    PM --> HS
+    BI --> PM
+    TP --> PM
+    FC -.-> PM
+    Extractors -.-> PM
+
+    Flask --> API
+    Flask --> Globe
+    Flask --> SearchUI
+```
+
+## Core Components
+
+### Discovery Engine (`discovery.py`)
+
+Finds NFS servers on the network using multiple methods, each with different coverage and intrusiveness:
+
+| Method | Source | Coverage | Notes |
+|---|---|---|---|
+| autofs maps | `automount -m` or `/etc/auto.master` | High | Primary method — reads fully resolved maps |
+| showmount | `showmount -e <server>` | Medium | Enumerates NFS exports from known servers |
+| ip neigh | ARP neighbor table | Medium | Discovers hosts on the local network |
+| Subnet scan | TCP port 22 probe | Broad | Optional, more aggressive |
+
+All discovered hosts are validated via SSH probe before crawling.
+
+### Mount Resolver (`mount_resolver.py`)
+
+Translates local mount paths to canonical NFS origins by cross-referencing:
+
+```mermaid
+flowchart TD
+    FILE["/mnt/sonar01/project/line_001.xtf"]
+
+    subgraph Sources["Mount Sources"]
+        PROC["/proc/mounts"]
+        FSTAB["/etc/fstab"]
+        AUTOFS["automount -m"]
+        MOUNT["mount command"]
+    end
+
+    PROC --> TABLE
+    FSTAB --> TABLE
+    AUTOFS --> TABLE
+    MOUNT --> TABLE
+
+    TABLE["Mount Table\n(sorted by path length)"]
+
+    FILE --> MATCH{"Longest\nprefix match"}
+    TABLE --> MATCH
+
+    MATCH --> RESULT["nas01:/export/survey/project/line_001.xtf"]
+
+    style RESULT fill:#065f46,stroke:#10b981,color:#fff
+```
+
+The **longest prefix match** ensures that nested mounts resolve correctly. For example, `/auto/nfs/sonar01/data/file.xtf` matches `/auto/nfs/sonar01` (more specific) over `/auto/nfs` (less specific).
+
+### File Hasher (`hasher.py`)
+
+Uses a two-pass strategy to minimize I/O:
+
+```mermaid
+flowchart LR
+    FILE["File\n(500 MB)"] --> P1["Pass 1\nPartial Hash\n(first 4 MB)"]
+
+    P1 --> CHECK{"Fingerprint\nknown?"}
+
+    CHECK --> |"New"| P2["Pass 2\nFull Hash\n(all 500 MB)"]
+    CHECK --> |"Seen"| SKIP["Skip\n(already cataloged)"]
+
+    P2 --> INSERT["Insert file +\nlocation"]
+
+    style SKIP fill:#065f46,stroke:#10b981,color:#fff
+    style INSERT fill:#1e3a5f,stroke:#3b82f6,color:#fff
+```
+
+Pass 1 reads only the first 4MB to compute a partial fingerprint. If the fingerprint is already known, the full file is never read. On incremental scans of a typical NFS share with 80% unchanged files, this skips reading ~80% of bytes.
+
+### File Crawler (`crawler.py`)
+
+Orchestrates the full crawl pipeline:
+
+1. Walk the filesystem tree, applying filters (extensions, size, exclude dirs)
+2. Batch files for parallel hashing
+3. Resolve NFS origins for each file
+4. Detect sonar format (via plugin hooks or built-in magic bytes)
+5. Extract navigation tracks (if enabled)
+6. Batch insert into the database with checkpoint saves
+
+### Catalog Search (`search.py`)
+
+Provides the query interface with FTS5 full-text search on filenames, plus filters for server, format, size range, and content hash lookup.
+
+## Data Model
+
+```mermaid
+erDiagram
+    files ||--o{ locations : "content_hash"
+    files ||--o| file_metadata : "content_hash"
+
+    files {
+        text content_hash PK "BLAKE3 / SHA-256"
+        bigint file_size
+        text partial_hash
+        text hash_algorithm
+        text sonar_format
+    }
+
+    locations {
+        bigint id PK
+        text content_hash FK
+        text nfs_server "Origin server"
+        text nfs_export "Export path"
+        text canonical_path UK "server:/full/path"
+        text access_path "Local mount path"
+        boolean is_local
+    }
+
+    file_metadata {
+        text content_hash PK
+        text metadata "JSON (track array)"
+        real lat_min
+        real lat_max
+        real lon_min
+        real lon_max
+        integer has_nav
+    }
+
+    hosts {
+        text ip_address PK
+        text hostname
+        boolean ssh_accessible
+        text scan_status
+    }
+```
+
+**Key concept:** No data is copied. The catalog stores *pointers*. One row in `files` per unique content hash, and one row in `locations` per place the file is accessible. If the same file exists on 10 NFS mounts, there's 1 file record and 10 location records.
+
+## Plugin Architecture
+
+The plugin system is modeled after [napari](https://github.com/napari/napari). Built-in functionality (format detection, nav extraction, export) goes through the same hook system as third-party plugins.
+
+```mermaid
+graph LR
+    subgraph Discovery["Plugin Discovery"]
+        EP["entry_points()"]
+        MF["sonar-plugin.yaml"]
+    end
+
+    subgraph Manager["Plugin Manager"]
+        REG[Register]
+        EN[Enable / Disable]
+        CALL[Call Hook]
+    end
+
+    subgraph Hooks["Hook Specs"]
+        H1["detect_format"]
+        H2["extract_nav"]
+        H3["export_data"]
+        H4["get_format_signatures"]
+        H5["register_web_routes"]
+    end
+
+    EP --> REG
+    MF --> REG
+    REG --> EN
+    EN --> CALL
+    CALL --> Hooks
+```
+
+See [Plugin System](/docs/plugins/overview/) for the full reference.
