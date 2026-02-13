@@ -53,6 +53,7 @@ flowchart TD
     style CFMT fill:#065f46,stroke:#10b981,color:#fff
     style BFMT fill:#065f46,stroke:#10b981,color:#fff
     style EFMT fill:#1e3a5f,stroke:#3b82f6,color:#fff
+    style UNKNOWN fill:#7f1d1d,stroke:#ef4444,color:#fff
 ```
 
 Detection is dispatched through the [plugin hook system](../plugins/hooks/). The `detect_format` hook uses firstresult mode — the first plugin to return a format name wins.

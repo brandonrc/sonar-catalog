@@ -110,10 +110,10 @@ Outputs the active configuration as JSON.
 
 | Field | Default | Description |
 |---|---|---|
-| `ssh_user` | `"xyz"` | SSH username for probing remote hosts |
+| `ssh_user` | `"survey"` | SSH username for probing remote hosts |
 | `ssh_timeout` | `3` | SSH connection timeout in seconds |
 | `ssh_auth_method` | `"key"` | `"key"`, `"sshpass_file"`, or `"sshpass_env"` |
-| `hostname_patterns` | `[]` | Glob patterns to filter discovered hosts (e.g., `["sonar-*"]`) |
+| `hostname_patterns` | `["sonar-*", "nas-*"]` | Glob patterns to filter discovered hosts |
 | `host_blacklist` | `[]` | Hostnames or IPs to never crawl |
 | `use_autofs` | `true` | Parse autofs maps for mount discovery |
 | `use_showmount` | `true` | Query NFS servers with showmount |
