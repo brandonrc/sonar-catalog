@@ -8,11 +8,14 @@ dynamic = ["version"]
 description = "Petabyte-scale sonar file catalog with deduplication across distributed NFS systems"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
+authors = [
+    {name = "Brandon Geraci", email = "brandon.geraci@gmail.com"},
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -24,6 +27,12 @@ classifiers = [
 dependencies = [
     # Core - all stdlib (sqlite3, os, subprocess, socket, hashlib, etc.)
 ]
+
+[project.urls]
+Homepage = "https://github.com/brandonrc/sonar-catalog"
+Repository = "https://github.com/brandonrc/sonar-catalog"
+Documentation = "https://brandonrc.github.io/sonar-catalog/"
+"Bug Tracker" = "https://github.com/brandonrc/sonar-catalog/issues"
 
 [project.optional-dependencies]
 postgres = [
