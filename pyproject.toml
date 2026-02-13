@@ -79,7 +79,7 @@ tag_regex = "^(?:[\\w-]+-)?(?P<version>[vV]?\\d+(?:\\.\\d+)*(?:[._-]?\\w+)*)$"
 include = ["sonar_catalog*"]
 
 [tool.setuptools.package-data]
-"sonar_catalog.web" = ["templates/*.html", "static/*.js", "static/*.css"]
+"sonar_catalog.web" = ["templates/*.html", "static/*.js", "static/*.css", "static/vendor/*.js", "static/vendor/cesium/*"]
 
 # ---------------------------------------------------------------------------
 # Tool configs

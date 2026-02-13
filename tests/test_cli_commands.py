@@ -143,6 +143,8 @@ class TestCmdCrawlAll:
         mock_resolver_cls.return_value = mock_resolver
 
         mock_crawler = MagicMock()
+        mock_crawler.crawl_local.return_value = {"files_found": 0, "files_new": 0}
+        mock_crawler.crawl_remote.return_value = {"files_found": 0, "files_new": 0}
         mock_crawler_cls.return_value = mock_crawler
 
         args = argparse.Namespace()
@@ -155,7 +157,8 @@ class TestCmdWeb:
         """Test web command starts the Flask app."""
         args = argparse.Namespace(host="127.0.0.1", port=8080, debug=False)
         mock_app = MagicMock()
-        with patch("sonar_catalog.web.create_app", return_value=mock_app):
+        mock_create = MagicMock(return_value=mock_app)
+        with patch.dict("sys.modules", {"sonar_catalog.web": MagicMock(create_app=mock_create)}):
             cmd_web(args, config_with_db)
             mock_app.run.assert_called_once_with(
                 host="127.0.0.1", port=8080, debug=False,
@@ -164,15 +167,9 @@ class TestCmdWeb:
     def test_web_no_flask(self, config_with_db, capsys):
         """Test web command when Flask isn't importable."""
         args = argparse.Namespace(host="127.0.0.1", port=8080, debug=False)
-        import sonar_catalog.web as web_mod
-        original = web_mod.create_app
-        try:
-            del web_mod.create_app
-            with patch.dict("sys.modules", {"sonar_catalog.web": None}):
-                with pytest.raises(SystemExit):
-                    cmd_web(args, config_with_db)
-        finally:
-            web_mod.create_app = original
+        with patch.dict("sys.modules", {"sonar_catalog.web": None}):
+            with pytest.raises(SystemExit):
+                cmd_web(args, config_with_db)
 
 
 class TestMainErrorHandling:
